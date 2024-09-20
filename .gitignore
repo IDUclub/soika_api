@@ -1,0 +1,12 @@
+*.ipynb
+__pycache__/
+/__pycache__
+__pycache__
+/.venv
+*.pkl
+/.vscode
+/.idea
+/venv
+/__llm_cache__
+.env.*
+/.vs
