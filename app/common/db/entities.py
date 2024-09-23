@@ -17,10 +17,16 @@ from sqlalchemy.dialects.postgresql import JSONB
 obj_metadata = MetaData()
 
 
-class CityDivisionTypeEnum(Enum):
-    ADMIN_UNIT_PARENT = "ADMIN_UNIT_PARENT"
-    MUNICIPALITY_PARENT = "MUNICIPALITY_PARENT"
-    NO_PARENT = "NO_PARENT"
+class SoikaTextSourseTypeEnum(Enum):
+    VK = "VK"
+    MSPB= "MSPB"
+
+
+class SoikaTextTypeEnum(Enum):
+    POST = "POST"
+    COMMENT = "COMMENT"
+    REPLY = "REPLY"
+    COMPLAINT = "COMPLAINT"
 
 
 cities = Table(
