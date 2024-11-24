@@ -7,48 +7,66 @@ from fastapi import APIRouter
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
 from app.risk_calculation.logic.spatial_methods import DataStructurer, RiskCalculation
+from app.common.api.urbandb_api_gateway import UrbanDBAPI
+import json
+from app.risk_calculation.logic.constants import CONSTANTS, TEXTS, bucket_name, constants_name, text_name
 router = APIRouter()
 
 
-@router.get("/")
-async def get_content():
-    logger.info("Get content")
-    return "Get content"
-
-#--------------------------------------
-#Модуль вычисления оценки социального риска
 @router.post("/social_risk/")
-async def get_stats_by_geom(params: ProjectTerritoryRequest) -> dict[str, dict | list]:
-    """Main function for getting statistics for the territory
+async def get_social_risk(params: ProjectTerritoryRequest) -> dict[str, dict | list]:
+    """Function for calculating social risk for the territory
     Args:
         params (ProjectTerritoryRequest): request in json format from user
     Returns:
-        dict[str, dict]: table with data for user
+        dict: table with social risk data
     """
-    logger.info(f"Started table request processing with params{params.__dict__}")
-
-    #CITY.try_init(bucket_name, object_name) #загрузка данных с файлового сервера
-    #source_data_processed = gpd.read_file('source_data_processed.geojson')
-    logger.info("Retrieving geometry from provided territory")
+    logger.info(f"Started request processing with params{params.__dict__}")
+    TEXTS.try_init(bucket_name, text_name)
     risk_calculator = RiskCalculation()
-    df = await risk_calculator.expand_rows_by_columns(df, columns=['services', 'indicators'])
-    df = await risk_calculator.calculate_score(df)
-    logger.info(f"Geometry retrieved, hierarchy generated. Starting table generation")
-    result_dict = await risk_calculator.score_table(df)
-    response = {'Таблица оценки социального риска': result_dict}
-    logger.info(f"Tables response generated")
+    logger.info("Retrieving texts for provided project territory")
+    project_area = await risk_calculator.to_gdf(params.selection_zone)
+    texts = await risk_calculator.get_texts(project_area)
+    if len(texts) == 0:
+        logger.info(f"No texts for this area")
+        response = {}
+        return response
+    logger.info("Calculating social risk for provided project territory")
+    texts = await risk_calculator.calculate_score(texts)
+    result_dict = await risk_calculator.score_table(texts)
+    response = {'social_risk_table': result_dict}
+    logger.info(f"Table response generated")
     return response
 
-#Тут происходит загрузка геослоя из базы
-
-#--------------------------------------------------
-#Модуль вычисления охвата
-
-# source_data_processed = gpd.read_file('text_data_for_risk_evaluation.geojson')
-# df_areas = gpd.read_file('territories_for_risk_evaluation.geojson')
-
-# df_areas = df_areas.merge(source_data_processed['best_match'].value_counts().rename('count'), left_on='name', right_index=True, how='left')
-# df_areas = df_areas.sort_values('admin_level').drop_duplicates(subset=['name'], keep='first')
-# df_areas.dropna(subset='count', inplace=True)
-# df_areas = df_areas[['name', 'admin_level', 'geometry', 'count']]
-# coverage_areas = df_areas.to_json()
+@router.post("/risk_coverage_areas/")
+async def get_social_risk_coverage(params: ProjectTerritoryRequest) -> dict[str, dict | list]:
+    """Function fo getting outrage coverage for the territory
+    Args:
+        params (ProjectTerritoryRequest): request in json format from user
+    Returns:
+        dict: dict with two geojsons with coverage areas
+    """
+    logger.info(f"Started request processing with params{params.__dict__}")
+    TEXTS.try_init(bucket_name, text_name)
+    risk_calculator = RiskCalculation()
+    logger.info("Retrieving texts for provided project territory")
+    project_area = await risk_calculator.to_gdf(params.selection_zone)
+    texts = await risk_calculator.get_texts(project_area)
+    if len(texts) == 0:
+        logger.info(f"No texts for this area")
+        response = {}
+        return response
+    logger.info("Retrieving potential areas of coverage for provided project territory")
+    urban_db_api = UrbanDBAPI()
+    urban_areas = await urban_db_api.get_territories(params.territory_id)
+    logger.info("Calculating coverage")
+    urban_areas = await risk_calculator.get_areas(urban_areas, texts)
+    logger.info("Generating links from project territory to coverage areas")
+    links = await risk_calculator.get_links(project_area, urban_areas)
+    
+    response = {
+        'coverage_areas': json.loads(urban_areas.to_json()),
+        'links_to_project': json.loads(links.to_json())
+    }
+    logger.info(f"Social risk coverage response generated")
+    return response

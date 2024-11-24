@@ -1,23 +1,11 @@
-# import asyncio
-# import geopandas as gpd
-# import pandas as pd
-# from shapely.geometry import shape
-# from shapely import wkt
-# from typing import List
-# from geojson_pydantic import MultiPolygon, Polygon, Point
-# from blocksnet import Provision, City, Accessibility, ACCESSIBILITY_TO_COLUMN
-
-# from app.llm_tables.dto.llm_impact_evaluation_dto import ImpactEvalDTO
-# from app.llm_tables.logic.constants import CITY, TEXTS, DEMOLITION_TEXTS
-# from app.common.exceptions.http_exception_wrapper import http_exception
-# from app.llm_tables.services import DistrictsService, BlocksService, CitiesService, ServicesService, BuildingsService, \
-#     MunicipalitiesService
-
 import re
 import nltk
 import pandas as pd
 import geopandas as gpd
-from soyka import AreaMatcher, TextClassifiers, Geocoder
+from sloyka import AreaMatcher, TextClassifiers, Geocoder
+from shapely.geometry import shape, LineString
+from geojson_pydantic import MultiPolygon, Polygon, Point
+from app.risk_calculation.logic.constants import TEXTS
 from nltk.corpus import wordnet
 from nltk.stem import WordNetLemmatizer
 from nltk.tokenize import word_tokenize
@@ -87,9 +75,9 @@ class DataStructurer:
             self.source_data.services.notna() & self.source_data.indicators.notna()
         ]
 
-    def run_geocoding_and_classification(self, area_matcher, emotion_classifier, tokenizer, osm_id):
+    def run_geocoding_and_classification(self, area_matcher, emotion_classifier, tokenizer, place_name):
         """Geocoding and emotion classification"""
-        self.source_data_processed = area_matcher.run(self.source_data_processed, osm_id=osm_id)
+        self.source_data_processed = area_matcher.run(self.source_data_processed, place_name=place_name)
         df_areas = area_matcher.get_osm_areas(osm_id)
 
         self.source_data_processed['text'] = self.source_data_processed.text.progress_map(
@@ -110,34 +98,13 @@ class DataStructurer:
         """Возвращает обработанные данные."""
         return self.source_data_processed
 
-
-# Пример использования класса
-# if __name__ == "__main__":
-#     processor = DataProcessor(
-#         source_data_path='source_data_processed.geojson',
-#         indicators_path='F:/Coding/fn34/indicators_keywords.xlsx',
-#         services_path='F:/Coding/fn34/services_keywords.xlsx'
-#     )
-#     processor.process_source_data()
-
-#     # Инициализация внешних классов
-#     area_matcher = AreaMatcher()
-#     emotion_classifier = TextClassifiers("Sandrro/emotions_classificator")
-
-#     # Запуск геокодирования и классификации
-#     processor.run_geocoding_and_classification(area_matcher, emotion_classifier, tokenizer, osm_id=176095)
-
-#     # Получение результата
-#     processed_data = processor.get_processed_data()
-#     print(processed_data)
-
 class RiskCalculation:
     def __init__(self, emotion_weights=None):
         """Initialize the class with emotion weights."""
         # Set emotion weights. Custom weights can be passed via the `emotion_weights` parameter.
         self.emotion_weights = emotion_weights or {'positive': 1.5, 'neutral': 1, 'negative': 1.5}
 
-    def expand_rows_by_columns(self, dataframe, columns):
+    async def expand_rows_by_columns(self, dataframe, columns):
         """
         Expands rows based on specified columns containing comma-separated values.
         
@@ -155,7 +122,7 @@ class RiskCalculation:
 
         return expanded_df
 
-    def calculate_score(self, dataframe):
+    async def calculate_score(self, dataframe):
         """
         Calculates scores based on emotions, views, likes, and reposts.
         
@@ -183,7 +150,7 @@ class RiskCalculation:
         # Remove temporary columns
         return df.drop(columns=['minmaxed_views', 'minmaxed_likes', 'minmaxed_reposts'])
 
-    def score_table(self, dataframe):
+    async def score_table(self, dataframe):
         """
         Generates a table with average scores for each (service, indicator) pair.
         
@@ -198,3 +165,61 @@ class RiskCalculation:
         score_dict = grouped.to_dict()
 
         return score_dict
+    
+    @staticmethod
+    async def to_gdf(geometry: Polygon | Point | MultiPolygon) -> gpd.GeoDataFrame:
+        """
+        Convert list of coordinates to GeoDataFrame
+        """
+
+        if isinstance(geometry, Point):
+            gs: gpd.GeoSeries = gpd.GeoSeries(
+                [geometry], crs=4326
+            ).to_crs(3857)
+            buffer = gs.buffer(500)
+            gdf = gpd.GeoDataFrame(geometry=buffer, crs=3857)
+            gdf.to_crs(4326, inplace=True)
+        else:
+            geometry = {'geometry': [shape(geometry)]}
+            gdf = gpd.GeoDataFrame(geometry, geometry='geometry', crs=4326)
+
+        return gdf
+
+    @staticmethod
+    async def get_texts(
+            territory_gdf: gpd.GeoDataFrame
+    ) -> pd.DataFrame:
+        """
+        Retrieves the source texts in the given territory.
+
+        Args:
+            territory_gdf (gpd.GeoDataFrame): A GeoDataFrame representing the area of interest.
+
+        Returns:
+            DataFrame:
+        """
+        texts = gpd.clip(TEXTS.gdf, territory_gdf)
+        return texts
+
+    @staticmethod
+    async def get_areas(urban_areas: gpd.GeoDataFrame, texts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        urban_areas = urban_areas.merge(texts['best_match'].value_counts().rename('count'), left_on='name', right_index=True, how='left')
+        urban_areas = urban_areas[['name', 'geometry', 'count']]
+        urban_areas.dropna(subset='count', inplace=True)
+        urban_areas['area'] = urban_areas.to_crs(3857).area
+        urban_areas = urban_areas.sort_values(by='area', ascending=False).drop_duplicates(subset='name', keep='first')
+        urban_areas.drop(columns=['area'], inplace=True)
+        return urban_areas
+
+    @staticmethod
+    async def get_links(project_territory: gpd.GeoDataFrame, urban_areas: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        project_centroid = project_territory.geometry.unary_union.centroid
+        lines_data = []
+        for _, area in urban_areas.iterrows():
+            area_centroid = area.geometry.centroid
+            line = LineString([area_centroid, project_centroid])
+            lines_data.append({"urban_area": area["name"], "geometry": line})
+        lines_gdf = gpd.GeoDataFrame(lines_data, geometry="geometry", crs=project_territory.crs)
+        return lines_gdf
+
+risk_calculator = RiskCalculation()
