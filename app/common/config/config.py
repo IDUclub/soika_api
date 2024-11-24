@@ -6,8 +6,7 @@ from loguru import logger
 
 class ApplicationConfig:
     def __init__(self):
-        #load_dotenv(Path().absolute() / f".env.{os.getenv('APP_ENV')}")
-        load_dotenv("F:/Coding/soika_api/.env.development")
+        load_dotenv(Path().absolute() / f".env.{os.getenv('APP_ENV')}")
         logger.info("Env variables loaded")
 
     @staticmethod
