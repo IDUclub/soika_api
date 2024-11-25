@@ -2,14 +2,15 @@
 Router module provides api with the api router for service in swagger interface
 and collects clear logic for them.
 """
+import json
 
 from fastapi import APIRouter
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
-from app.risk_calculation.logic.spatial_methods import DataStructurer, RiskCalculation
-from app.common.api.urbandb_api_gateway import UrbanDBAPI
-import json
-from app.risk_calculation.logic.constants import CONSTANTS, TEXTS, bucket_name, constants_name, text_name
+from app.risk_calculation.logic.spatial_methods import risk_calculator
+from app.risk_calculation.logic.constants import TEXTS, bucket_name, text_name
+from app.common.api.urbandb_api_gateway import urban_db_api
+
 router = APIRouter()
 
 
@@ -23,7 +24,6 @@ async def get_social_risk(params: ProjectTerritoryRequest) -> dict[str, dict | l
     """
     logger.info(f"Started request processing with params{params.__dict__}")
     TEXTS.try_init(bucket_name, text_name)
-    risk_calculator = RiskCalculation()
     logger.info("Retrieving texts for provided project territory")
     project_area = await risk_calculator.to_gdf(params.selection_zone)
     texts = await risk_calculator.get_texts(project_area)
@@ -48,7 +48,6 @@ async def get_social_risk_coverage(params: ProjectTerritoryRequest) -> dict[str,
     """
     logger.info(f"Started request processing with params{params.__dict__}")
     TEXTS.try_init(bucket_name, text_name)
-    risk_calculator = RiskCalculation()
     logger.info("Retrieving texts for provided project territory")
     project_area = await risk_calculator.to_gdf(params.selection_zone)
     texts = await risk_calculator.get_texts(project_area)
@@ -57,16 +56,14 @@ async def get_social_risk_coverage(params: ProjectTerritoryRequest) -> dict[str,
         response = {}
         return response
     logger.info("Retrieving potential areas of coverage for provided project territory")
-    urban_db_api = UrbanDBAPI()
     urban_areas = await urban_db_api.get_territories(params.territory_id)
     logger.info("Calculating coverage")
     urban_areas = await risk_calculator.get_areas(urban_areas, texts)
     logger.info("Generating links from project territory to coverage areas")
     links = await risk_calculator.get_links(project_area, urban_areas)
-    
     response = {
-        'coverage_areas': json.loads(urban_areas.to_json()),
-        'links_to_project': json.loads(links.to_json())
-    }
+    'coverage_areas': json.loads(urban_areas.to_json()),
+    'links_to_project': json.loads(links.to_json())
+    }   
     logger.info(f"Social risk coverage response generated")
     return response

@@ -62,4 +62,4 @@ class CachingService:
                 break
         return actual_filename
 
-caching_service = CachingService(Path().absolute() / "__llm_cache__")
+caching_service = CachingService(Path().absolute() / "__soika_cache__")

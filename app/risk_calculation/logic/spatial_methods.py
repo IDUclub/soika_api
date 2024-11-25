@@ -2,6 +2,7 @@ import re
 import nltk
 import pandas as pd
 import geopandas as gpd
+
 from sloyka import AreaMatcher, TextClassifiers, Geocoder
 from shapely.geometry import shape, LineString
 from geojson_pydantic import MultiPolygon, Polygon, Point
@@ -206,7 +207,8 @@ class RiskCalculation:
         urban_areas = urban_areas.merge(texts['best_match'].value_counts().rename('count'), left_on='name', right_index=True, how='left')
         urban_areas = urban_areas[['name', 'geometry', 'count']]
         urban_areas.dropna(subset='count', inplace=True)
-        urban_areas['area'] = urban_areas.to_crs(3857).area
+        local_crs = urban_areas.estimate_utm_crs()
+        urban_areas['area'] = urban_areas.to_crs(local_crs).area
         urban_areas = urban_areas.sort_values(by='area', ascending=False).drop_duplicates(subset='name', keep='first')
         urban_areas.drop(columns=['area'], inplace=True)
         return urban_areas
