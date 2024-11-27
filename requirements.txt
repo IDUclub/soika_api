@@ -3,6 +3,7 @@ fastapi==0.115.2
 GeoAlchemy2==0.15.2
 geojson-pydantic==0.4.0
 geopandas==0.12.2
+gunicorn~=23.0.0
 loguru==0.7.2
 minio==7.2.9
 nltk==3.8.1
@@ -14,3 +15,4 @@ shapely==2.0.1
 sloyka==0.2.2
 SQLAlchemy==2.0.35
 tqdm==4.64.1
+uvicorn~=0.30.6
