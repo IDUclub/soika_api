@@ -2,7 +2,7 @@ aiohttp==3.10.5
 fastapi==0.115.2
 GeoAlchemy2==0.15.2
 geojson-pydantic==0.4.0
-geopandas==0.12.2
+geopandas==0.14.4
 gunicorn~=23.0.0
 loguru==0.7.2
 minio==7.2.9
