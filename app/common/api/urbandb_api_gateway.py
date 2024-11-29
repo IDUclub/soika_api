@@ -22,9 +22,8 @@ class UrbanDBAPI:
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as response:
                 if response.status == 200:
-                    pickle_data = await response.read()
+                    json_data = await response.json()
                     logger.info(f"Child territories for territory_id {territory_id} successfully fetched from API.")
-                    json_data = json.loads(pickle_data.decode('utf-8'))
                     territories = []
                     for territory in json_data['results']:
                         territories.append([territory['name'], shape(territory['geometry'])])
@@ -44,9 +43,8 @@ class UrbanDBAPI:
         async with aiohttp.ClientSession() as session:
             async with session.get(api_url) as response:
                 if response.status == 200:
-                    pickle_data = await response.read()
+                    json_data = await response.json()
                     logger.info(f"Territory for territory_id {territory_id} successfully fetched from API.")
-                    json_data = json.loads(pickle_data.decode('utf-8'))
                     territory = [json_data['name'], shape(json_data['geometry'])]
                     territory = gpd.GeoDataFrame(pd.DataFrame([territory], columns = ['name', 'geometry']), geometry='geometry', crs=4326) 
                     return territory
