@@ -29,50 +29,6 @@ class RiskCalculation:
 
         return expanded_df
 
-    async def calculate_score(self, dataframe):
-        """
-        Calculates scores based on emotions, views, likes, and reposts.
-        
-        Args:
-            dataframe (pd.DataFrame): Input DataFrame.
-
-        Returns:
-            pd.DataFrame: DataFrame with an added `score` column.
-        """
-        df = dataframe.copy()
-        df['emotion_weight'] = df['emotion'].map(self.emotion_weights)
-
-        # Normalize columns
-        df['minmaxed_views'] = (df['views.count'] - df['views.count'].min()) / (df['views.count'].max() - df['views.count'].min())
-        df['minmaxed_likes'] = (df['likes.count'] - df['likes.count'].min()) / (df['likes.count'].max() - df['likes.count'].min())
-        df['minmaxed_reposts'] = (df['reposts.count'] - df['reposts.count'].min()) / (df['reposts.count'].max() - df['reposts.count'].min())
-
-        # Calculate the final `score`
-        df['score'] = df.apply(
-            lambda row: (row['minmaxed_views'] + row['minmaxed_likes'] + row['minmaxed_reposts'] + 1) * row['emotion_weight'],
-            axis=1
-        )
-        df['score'] = df['score'].round(4)
-
-        # Remove temporary columns
-        return df.drop(columns=['minmaxed_views', 'minmaxed_likes', 'minmaxed_reposts'])
-
-    async def score_table(self, dataframe):
-        """
-        Generates a table with average scores for each (service, indicator) pair.
-        
-        Args:
-            dataframe (pd.DataFrame): Input DataFrame.
-
-        Returns:
-            dict: A dictionary where keys are indicators and values are scores for each service.
-        """
-        grouped = dataframe.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
-        grouped = grouped.round(4)
-        score_dict = grouped.to_dict()
-
-        return score_dict
-    
     @staticmethod
     async def to_gdf(geometry: Polygon | Point | MultiPolygon) -> gpd.GeoDataFrame:
         """
@@ -106,7 +62,49 @@ class RiskCalculation:
             DataFrame:
         """
         texts = gpd.clip(TEXTS.gdf, territory_gdf)
+        texts = texts[texts['type'] != 'post'] #maybe add this as an option
         return texts
+
+    async def calculate_score(self, dataframe):
+        """
+        Calculates scores based on emotions, views, likes, and reposts.
+        
+        Args:
+            dataframe (pd.DataFrame): Input DataFrame.
+
+        Returns:
+            pd.DataFrame: DataFrame with an added `score` column.
+        """
+        df = dataframe.copy()
+        df['emotion_weight'] = df['emotion'].map(self.emotion_weights)
+
+        df['minmaxed_views'] = (df['views.count'] - df['views.count'].min()) / (df['views.count'].max() - df['views.count'].min())
+        df['minmaxed_likes'] = (df['likes.count'] - df['likes.count'].min()) / (df['likes.count'].max() - df['likes.count'].min())
+        df['minmaxed_reposts'] = (df['reposts.count'] - df['reposts.count'].min()) / (df['reposts.count'].max() - df['reposts.count'].min())
+
+        df['score'] = df.fillna(0).apply(
+            lambda row: (row['minmaxed_views'] + row['minmaxed_likes'] + row['minmaxed_reposts'] + 1) * row['emotion_weight'],
+            axis=1
+        )
+        df['score'] = df['score'].round(4)
+
+        return df.drop(columns=['minmaxed_views', 'minmaxed_likes', 'minmaxed_reposts'])
+
+    async def score_table(self, dataframe):
+        """
+        Generates a table with average scores for each (service, indicator) pair.
+        
+        Args:
+            dataframe (pd.DataFrame): Input DataFrame.
+
+        Returns:
+            dict: A dictionary where keys are indicators and values are scores for each service.
+        """
+        grouped = dataframe.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
+        grouped = grouped.round(4)
+        score_dict = grouped.to_dict()
+
+        return score_dict
 
     @staticmethod
     async def get_areas(urban_areas: gpd.GeoDataFrame, texts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
