@@ -1,9 +1,12 @@
 import pandas as pd
 import geopandas as gpd
+import json
 
+from loguru import logger
 from shapely.geometry import shape, LineString
 from geojson_pydantic import MultiPolygon, Polygon, Point
 from app.risk_calculation.logic.constants import TEXTS, bucket_name, text_name
+from app.common.api.urbandb_api_gateway import urban_db_api
 
 class RiskCalculation:
     def __init__(self, emotion_weights=None):
@@ -135,7 +138,6 @@ class RiskCalculation:
         return score_dict
 
     async def calculate_social_risk(self, territory_gdf):
-        TEXTS.try_init(bucket_name, text_name)
         logger.info("Retrieving texts for provided project territory")
         project_area = await risk_calculator.to_gdf(territory_gdf)
         texts = await risk_calculator.get_texts(project_area)
@@ -144,10 +146,11 @@ class RiskCalculation:
             response = {}
             return response
         logger.info("Calculating social risk for provided project territory")
-        buffer_size = texts['buffer_size']
         scored_texts = await risk_calculator.calculate_score(texts['texts'])
         result_dict = await risk_calculator.score_table(scored_texts)
-        response = {'social_risk_table': result_dict, 'buffer_size':buffer_size}
+        response = {'social_risk_table': result_dict, 'buffer_size':texts['buffer_size']}
+        logger.info(f"Table response generated")
+        return response
 
     @staticmethod
     async def get_areas(urban_areas: gpd.GeoDataFrame, texts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
@@ -170,5 +173,27 @@ class RiskCalculation:
             lines_data.append({"urban_area": area["name"], "geometry": line})
         lines_gdf = gpd.GeoDataFrame(lines_data, geometry="geometry", crs=project_territory.crs)
         return lines_gdf
+
+    async def calculate_coverage(self, territory_gdf, territory_id):
+        logger.info("Retrieving texts for provided project territory")
+        project_area = await risk_calculator.to_gdf(territory_gdf)
+        texts = await risk_calculator.get_texts(project_area)
+        if len(texts['texts']) == 0:
+            logger.info(f"No texts for this area")
+            response = {}
+            return response
+        buffer_size = texts['buffer_size']
+        logger.info("Retrieving potential areas of coverage for provided project territory")
+        urban_areas = await urban_db_api.get_territories(territory_id)
+        logger.info("Calculating coverage")
+        urban_areas = await risk_calculator.get_areas(urban_areas, texts['texts'])
+        logger.info("Generating links from project territory to coverage areas")
+        links = await risk_calculator.get_links(project_area, urban_areas)
+        response = {
+        'coverage_areas': json.loads(urban_areas.to_json()),
+        'links_to_project': json.loads(links.to_json()),
+        'buffer_size': buffer_size
+        }
+        return response
 
 risk_calculator = RiskCalculation()
