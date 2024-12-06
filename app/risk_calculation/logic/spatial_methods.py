@@ -3,7 +3,7 @@ import geopandas as gpd
 
 from shapely.geometry import shape, LineString
 from geojson_pydantic import MultiPolygon, Polygon, Point
-from app.risk_calculation.logic.constants import TEXTS
+from app.risk_calculation.logic.constants import TEXTS, bucket_name, text_name
 
 class RiskCalculation:
     def __init__(self, emotion_weights=None):
@@ -50,20 +50,48 @@ class RiskCalculation:
 
     @staticmethod
     async def get_texts(
-            territory_gdf: gpd.GeoDataFrame
-    ) -> pd.DataFrame:
+        territory_gdf: gpd.GeoDataFrame,
+        min_texts: int = 15,
+        buffer_step: float = 1000,
+        max_buffer: float = 10000
+    ):
         """
         Retrieves the source texts in the given territory.
 
         Args:
             territory_gdf (gpd.GeoDataFrame): A GeoDataFrame representing the area of interest.
+            min_texts (int): Minimum number of texts required.
+            buffer_step (float): Buffer increment size in meters.
+            max_buffer (float): Maximum buffer size in meters.
 
         Returns:
-            DataFrame:
+            Dict[str, Any]: A dictionary with 'buffer_size' and 'texts' keys.
         """
-        texts = gpd.clip(TEXTS.gdf, territory_gdf)
-        texts = texts[texts['type'] != 'post'] #maybe add this as an option
-        return texts
+        territory_gdf = territory_gdf.copy()
+        texts_gdf = TEXTS.gdf.copy()
+
+        local_crs = territory_gdf.estimate_utm_crs()
+        territory_gdf = territory_gdf.to_crs(local_crs)
+        texts_gdf = texts_gdf.to_crs(local_crs)
+
+        texts_gdf = texts_gdf[texts_gdf['type'] != 'post']
+
+        buffer_size = 0
+        local_texts = gpd.clip(texts_gdf, territory_gdf)
+
+        while len(local_texts) < min_texts:
+            buffer_size += buffer_step
+            if buffer_size > max_buffer:
+                return {}
+            buffered_territory = territory_gdf.copy()
+            buffered_territory['geometry'] = buffered_territory.buffer(buffer_size)
+
+            local_texts = gpd.clip(texts_gdf, buffered_territory)
+
+        return {
+            'buffer_size': buffer_size,
+            'texts': local_texts.to_crs(epsg=4326)
+        }
 
     async def calculate_score(self, dataframe):
         """
@@ -105,6 +133,21 @@ class RiskCalculation:
         score_dict = grouped.to_dict()
 
         return score_dict
+
+    async def calculate_social_risk(self, territory_gdf):
+        TEXTS.try_init(bucket_name, text_name)
+        logger.info("Retrieving texts for provided project territory")
+        project_area = await risk_calculator.to_gdf(territory_gdf)
+        texts = await risk_calculator.get_texts(project_area)
+        if len(texts['texts']) == 0:
+            logger.info(f"No texts for this area")
+            response = {}
+            return response
+        logger.info("Calculating social risk for provided project territory")
+        buffer_size = texts['buffer_size']
+        scored_texts = await risk_calculator.calculate_score(texts['texts'])
+        result_dict = await risk_calculator.score_table(scored_texts)
+        response = {'social_risk_table': result_dict, 'buffer_size':buffer_size}
 
     @staticmethod
     async def get_areas(urban_areas: gpd.GeoDataFrame, texts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
