@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.common.config import config
-from app.topic_maker.content_maker_controller import router
+from app.risk_calculation.social_risk_controller import router
 
 
 logger.remove()
