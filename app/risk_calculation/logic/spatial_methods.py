@@ -85,7 +85,10 @@ class RiskCalculation:
         while len(local_texts) < min_texts:
             buffer_size += buffer_step
             if buffer_size > max_buffer:
-                return {}
+                return {
+                    'buffer_size':buffer_size,
+                    'texts':pd.DataFrame()
+                    }
             buffered_territory = territory_gdf.copy()
             buffered_territory['geometry'] = buffered_territory.buffer(buffer_size)
 
