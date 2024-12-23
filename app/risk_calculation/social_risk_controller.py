@@ -27,7 +27,7 @@ async def get_social_risk(params: ProjectTerritoryRequest) -> dict[str, dict | l
 
 @router.post("/risk_coverage_areas/")
 async def get_social_risk_coverage(params: ProjectTerritoryRequest) -> dict[str, dict | list | int]:
-    """Function fo getting outrage coverage for the territory
+    """Function for getting outrage coverage for the territory
     Args:
         params (ProjectTerritoryRequest): request in json format from user
     Returns:
@@ -37,4 +37,18 @@ async def get_social_risk_coverage(params: ProjectTerritoryRequest) -> dict[str,
     TEXTS.try_init(bucket_name, text_name)
     response = await risk_calculator.calculate_coverage(params.selection_zone, params.territory_id) 
     logger.info(f"Social risk coverage response generated")
+    return response
+
+@router.post("/collect_texts/")
+async def get_texts_for_territory(params: ProjectTerritoryRequest) -> dict[str, dict | list | int]:
+    """Function to collect texts for the territory
+    Args:
+        params (ProjectTerritoryRequest): request in json format from user
+    Returns:
+        dict: dict with dataframe with texts and their attributes
+    """
+    logger.info(f"Started request processing with params{params.__dict__}")
+    TEXTS.try_init(bucket_name, text_name)
+    response = await risk_calculator.collect_texts(params.selection_zone) 
+    logger.info(f"Texts for social risk collected")
     return response

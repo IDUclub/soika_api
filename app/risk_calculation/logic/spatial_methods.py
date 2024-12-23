@@ -199,4 +199,40 @@ class RiskCalculation:
         }
         return response
 
+    async def collect_texts(self, territory_gdf):
+        logger.info("Retrieving texts for provided project territory")
+        project_area = await risk_calculator.to_gdf(territory_gdf)
+        texts = await risk_calculator.get_texts(project_area)
+        if len(texts['texts']) == 0:
+            logger.info(f"No texts for this area")
+            response = {}
+            return response
+        texts_df = texts['texts'].copy()
+        texts_df = texts_df.drop(columns=[
+            'id', 'type', 'full_street_name', 
+            'emotion_prob', 'emotion_weight',
+            'group_name', 'geometry'])
+        texts_df['date'] = texts_df['date'].astype(str)
+        texts_df.rename(columns={
+            'Location':'project_address',
+            'score':'risk_score',
+            'best_match':'source_address',
+            'views.count':'views',
+            'likes.count':'likes',
+            'reposts.count':'reposts'}, inplace=True)
+        texts_df = texts_df.groupby(
+        [
+            'text', 'date', 'project_address', 'source_address', 
+            'views', 'likes', 'reposts', 'emotion', 'risk_score'
+        ]
+        ).agg({
+            'services': lambda x: ', '.join(set(x)),  
+            'indicators': lambda x: ', '.join(set(x))
+        }).reset_index()  
+        response = {
+            'texts': json.loads(texts_df.to_json()),
+        }
+        return response
+        
+
 risk_calculator = RiskCalculation()
