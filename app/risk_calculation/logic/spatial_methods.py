@@ -121,14 +121,14 @@ class RiskCalculation:
         return score_dict
 
     async def calculate_social_risk(self, territory_id, project_id):
-        logger.info("Retrieving texts for provided project territory and its context")
+        logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
         if len(texts['texts']) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
-        logger.info("Calculating social risk for provided project territory and its context")
+        logger.info(f"Calculating social risk for project {project_id} and its context")
         scored_texts = await risk_calculator.calculate_score(texts['texts'])
         result_dict = await risk_calculator.score_table(scored_texts)
         response = {'social_risk_table': result_dict}
@@ -158,18 +158,18 @@ class RiskCalculation:
         return lines_gdf
 
     async def calculate_coverage(self, territory_id, project_id):
-        logger.info("Retrieving texts for provided project territory and its context")
+        logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
         if len(texts['texts']) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
-        logger.info("Retrieving potential areas of coverage for provided project territory")
+        logger.info(f"Retrieving potential areas of coverage for project {project_id}")
         urban_areas = await urban_db_api.get_territories(territory_id)
         logger.info("Calculating coverage")
         urban_areas = await risk_calculator.get_areas(urban_areas, texts['texts'])
-        logger.info("Generating links from project territory to coverage areas")
+        logger.info(f"Generating links from project {project_id} to coverage areas")
         links = await risk_calculator.get_links(project_id, urban_areas)
         response = {
         'coverage_areas': json.loads(urban_areas.to_json()),
@@ -178,7 +178,7 @@ class RiskCalculation:
         return response
 
     async def collect_texts(self, territory_id, project_id):
-        logger.info("Retrieving texts for provided project territory and its context")
+        logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
         if len(texts['texts']) == 0:
