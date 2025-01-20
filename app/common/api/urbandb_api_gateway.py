@@ -32,7 +32,7 @@ class UrbanDBAPI:
                     return territories
                 else:
                     logger.error(f"Failed to fetch child territories, status code: {response.status}")
-                    raise http_exception(response.status, f"Failed to fetch territory", response.url)
+                    raise http_exception(response.status, f"Failed to fetch territory", str(response.url))
 
     async def get_territory(self, territory_id: int):
         """
@@ -51,7 +51,7 @@ class UrbanDBAPI:
                     return territory
                 else:
                     logger.error(f"Failed to fetch territory, status code: {response.status}")
-                    raise http_exception(response.status, f"Failed to fetch territory", response.url)
+                    raise http_exception(response.status, f"Failed to fetch territory", str(response.url))
 
     async def get_territories(self, territory_id):
         """
@@ -78,7 +78,7 @@ class UrbanDBAPI:
                     return Point(centre_coords)
                 else:
                     logger.error(f"Failed to fetch centroid of territory, status code: {response.status}")
-                    raise http_exception(response.status, f"Failed to fetch centroid of territory", response.url)
+                    raise http_exception(response.status, f"Failed to fetch centroid of territory", str(response.url))
 
     async def get_context_ids(self, territory_id, project_id):
         """
@@ -96,10 +96,10 @@ class UrbanDBAPI:
                     for project in results:
                         if project.get("project_id") == project_id:
                             return project.get("properties", {}).get("context", [])
-                    raise http_exception(404, f"Failed to fetch list of context ids", response.status)
+                    raise http_exception(response.status, f"Failed to fetch list of context ids", str(response.url))
                 else:
                     logger.error(f"Failed to fetch list of projects, status code: {response.status}")
-                    raise http_exception(response.status, f"Failed to fetch list pf projects", response.url)
+                    raise http_exception(response.status, f"Failed to fetch list pf projects", str(response.url))
 
     async def get_context_territories(self, territory_id, project_id):
         """
