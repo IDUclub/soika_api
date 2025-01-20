@@ -53,19 +53,13 @@ class RiskCalculation:
 
     @staticmethod
     async def get_texts(
-        territory_gdf: gpd.GeoDataFrame,
-        min_texts: int = 15,
-        buffer_step: float = 1000,
-        max_buffer: float = 10000
+        territory_gdf: gpd.GeoDataFrame
     ):
         """
         Retrieves the source texts in the given territory.
 
         Args:
             territory_gdf (gpd.GeoDataFrame): A GeoDataFrame representing the area of interest.
-            min_texts (int): Minimum number of texts required.
-            buffer_step (float): Buffer increment size in meters.
-            max_buffer (float): Maximum buffer size in meters.
 
         Returns:
             Dict[str, Any]: A dictionary with 'buffer_size' and 'texts' keys.
@@ -79,23 +73,9 @@ class RiskCalculation:
 
         texts_gdf = texts_gdf[texts_gdf['type'] != 'post']
 
-        buffer_size = 0
         local_texts = gpd.clip(texts_gdf, territory_gdf)
 
-        while len(local_texts) < min_texts:
-            buffer_size += buffer_step
-            if buffer_size > max_buffer:
-                return {
-                    'buffer_size':buffer_size,
-                    'texts':pd.DataFrame()
-                    }
-            buffered_territory = territory_gdf.copy()
-            buffered_territory['geometry'] = buffered_territory.buffer(buffer_size)
-
-            local_texts = gpd.clip(texts_gdf, buffered_territory)
-
         return {
-            'buffer_size': buffer_size,
             'texts': local_texts.to_crs(epsg=4326)
         }
 
@@ -140,18 +120,18 @@ class RiskCalculation:
 
         return score_dict
 
-    async def calculate_social_risk(self, territory_gdf):
-        logger.info("Retrieving texts for provided project territory")
-        project_area = await risk_calculator.to_gdf(territory_gdf)
+    async def calculate_social_risk(self, territory_id, project_id):
+        logger.info(f"Retrieving texts for project {project_id} and its context")
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
         if len(texts['texts']) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
-        logger.info("Calculating social risk for provided project territory")
+        logger.info(f"Calculating social risk for project {project_id} and its context")
         scored_texts = await risk_calculator.calculate_score(texts['texts'])
         result_dict = await risk_calculator.score_table(scored_texts)
-        response = {'social_risk_table': result_dict, 'buffer_size':texts['buffer_size']}
+        response = {'social_risk_table': result_dict}
         logger.info(f"Table response generated")
         return response
 
@@ -167,41 +147,39 @@ class RiskCalculation:
         return urban_areas
 
     @staticmethod
-    async def get_links(project_territory: gpd.GeoDataFrame, urban_areas: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        project_centroid = project_territory.geometry.unary_union.centroid
+    async def get_links(project_id: int, urban_areas: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        project_centroid = await urban_db_api.get_project_territory_centroid(project_id)
         lines_data = []
         for _, area in urban_areas.iterrows():
             area_centroid = area.geometry.centroid
             line = LineString([area_centroid, project_centroid])
             lines_data.append({"urban_area": area["name"], "geometry": line})
-        lines_gdf = gpd.GeoDataFrame(lines_data, geometry="geometry", crs=project_territory.crs)
+        lines_gdf = gpd.GeoDataFrame(lines_data, geometry="geometry", crs=urban_areas.crs)
         return lines_gdf
 
-    async def calculate_coverage(self, territory_gdf, territory_id):
-        logger.info("Retrieving texts for provided project territory")
-        project_area = await risk_calculator.to_gdf(territory_gdf)
+    async def calculate_coverage(self, territory_id, project_id):
+        logger.info(f"Retrieving texts for project {project_id} and its context")
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
         if len(texts['texts']) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
-        buffer_size = texts['buffer_size']
-        logger.info("Retrieving potential areas of coverage for provided project territory")
+        logger.info(f"Retrieving potential areas of coverage for project {project_id}")
         urban_areas = await urban_db_api.get_territories(territory_id)
         logger.info("Calculating coverage")
         urban_areas = await risk_calculator.get_areas(urban_areas, texts['texts'])
-        logger.info("Generating links from project territory to coverage areas")
-        links = await risk_calculator.get_links(project_area, urban_areas)
+        logger.info(f"Generating links from project {project_id} to coverage areas")
+        links = await risk_calculator.get_links(project_id, urban_areas)
         response = {
         'coverage_areas': json.loads(urban_areas.to_json()),
-        'links_to_project': json.loads(links.to_json()),
-        'buffer_size': buffer_size
+        'links_to_project': json.loads(links.to_json())
         }
         return response
 
-    async def collect_texts(self, territory_gdf):
-        logger.info("Retrieving texts for provided project territory")
-        project_area = await risk_calculator.to_gdf(territory_gdf)
+    async def collect_texts(self, territory_id, project_id):
+        logger.info(f"Retrieving texts for project {project_id} and its context")
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
         if len(texts['texts']) == 0:
             logger.info(f"No texts for this area")
