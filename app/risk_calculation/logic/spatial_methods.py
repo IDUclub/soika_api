@@ -115,7 +115,9 @@ class RiskCalculation:
             dict: A dictionary where keys are indicators and values are scores for each service.
         """
         grouped = dataframe.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
-        grouped = grouped.round(4)
+        grouped['risk_rating'] = grouped.sum(axis=1).clip(upper=5).round(0).astype(int)
+        grouped['description'] = 'placeholder'
+        grouped = grouped[['risk_rating', 'description']]
         score_dict = grouped.to_dict()
 
         return score_dict
