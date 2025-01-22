@@ -188,25 +188,10 @@ class RiskCalculation:
             response = {}
             return response
         texts_df = texts['texts'].copy()
-        texts_df = texts_df.drop(columns=[
-            'id', 'type', 'full_street_name', 
-            'emotion_prob', 'emotion_weight',
-            'group_name', 'geometry'])
-        texts_df['date'] = texts_df['date'].astype(str)
-        texts_df.rename(columns={
-            'Location':'project_address',
-            'score':'risk_score',
-            'best_match':'source_address',
-            'views.count':'views',
-            'likes.count':'likes',
-            'reposts.count':'reposts'}, inplace=True)
+        texts_df = texts_df[['text', 'services', 'indicators']]
         texts_df = texts_df.groupby(
-        [
-            'text', 'date', 'project_address', 'source_address', 
-            'views', 'likes', 'reposts', 'emotion', 'risk_score'
-        ]
-        ).agg({
-            'services': lambda x: ', '.join(set(x)),  
+            ['text', 'services'] 
+        ).agg({ 
             'indicators': lambda x: ', '.join(set(x))
         }).reset_index()  
         response = {
