@@ -187,6 +187,7 @@ class RiskCalculation:
         urban_areas = await risk_calculator.get_areas(region_territories, texts['texts'])
         logger.info(f"Generating links from project {project_id} to coverage areas")
         links = await risk_calculator.get_links(project_id, urban_areas, region_territories)
+        urban_areas.drop(columns=['admin_center', 'is_city'], inplace=True)
         response = {
         'coverage_areas': json.loads(urban_areas.to_json()),
         'links_to_project': json.loads(links.to_json())
