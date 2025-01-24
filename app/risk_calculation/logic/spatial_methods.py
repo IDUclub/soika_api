@@ -1,6 +1,7 @@
 import pandas as pd
 import geopandas as gpd
 import json
+import asyncio
 
 from loguru import logger
 from shapely.geometry import shape, LineString
@@ -11,7 +12,6 @@ from app.common.api.urbandb_api_gateway import urban_db_api
 class RiskCalculation:
     def __init__(self, emotion_weights=None):
         """Initialize the class with emotion weights."""
-        # Set emotion weights. Custom weights can be passed via the `emotion_weights` parameter.
         self.emotion_weights = emotion_weights or {'positive': 1.5, 'neutral': 1, 'negative': 1.5}
 
     async def expand_rows_by_columns(self, dataframe, columns):
@@ -140,7 +140,7 @@ class RiskCalculation:
     @staticmethod
     async def get_areas(urban_areas: gpd.GeoDataFrame, texts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         urban_areas = urban_areas.merge(texts['best_match'].value_counts().rename('count'), left_on='name', right_index=True, how='left')
-        urban_areas = urban_areas[['name', 'geometry', 'count']]
+        urban_areas = urban_areas[['name', 'territory_id', 'admin_center', 'is_city', 'geometry', 'count']]
         urban_areas.dropna(subset='count', inplace=True)
         local_crs = urban_areas.estimate_utm_crs()
         urban_areas['area'] = urban_areas.to_crs(local_crs).area
@@ -149,15 +149,29 @@ class RiskCalculation:
         return urban_areas
 
     @staticmethod
-    async def get_links(project_id: int, urban_areas: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    async def get_area_centroid(area, region_territories):
+        if area['is_city']:
+            return area.geometry.centroid
+        else:
+            filtered_region = region_territories.loc[region_territories['territory_id'] == area.admin_center]
+            return filtered_region.geometry.centroid.iloc[0]
+
+    @staticmethod
+    async def get_links(project_id: int, urban_areas: gpd.GeoDataFrame, region_territories: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         project_centroid = await urban_db_api.get_project_territory_centroid(project_id)
-        lines_data = []
-        for _, area in urban_areas.iterrows():
-            area_centroid = area.geometry.centroid
-            line = LineString([area_centroid, project_centroid])
-            lines_data.append({"urban_area": area["name"], "geometry": line})
-        lines_gdf = gpd.GeoDataFrame(lines_data, geometry="geometry", crs=urban_areas.crs)
-        return lines_gdf
+        areas = urban_areas.copy()
+        areas['geometry'] = await asyncio.gather(*[
+            risk_calculator.get_area_centroid(area, region_territories) for _, area in areas.iterrows()
+        ])
+        areas['geometry'] = areas.apply(
+            lambda area: LineString([area.geometry, project_centroid]), axis=1
+        )
+        grouped = areas.groupby('geometry').agg({
+            'name': lambda x: list(x)
+        }).reset_index()
+        grouped.rename(columns={'name': 'urban_area'}, inplace=True)
+        combined_lines_gdf = gpd.GeoDataFrame(grouped, geometry='geometry', crs=areas.crs)
+        return combined_lines_gdf
 
     async def calculate_coverage(self, territory_id, project_id):
         logger.info(f"Retrieving texts for project {project_id} and its context")
@@ -168,11 +182,11 @@ class RiskCalculation:
             response = {}
             return response
         logger.info(f"Retrieving potential areas of coverage for project {project_id}")
-        urban_areas = await urban_db_api.get_territories(territory_id)
+        region_territories = await urban_db_api.get_territories(territory_id)
         logger.info("Calculating coverage")
-        urban_areas = await risk_calculator.get_areas(urban_areas, texts['texts'])
+        urban_areas = await risk_calculator.get_areas(region_territories, texts['texts'])
         logger.info(f"Generating links from project {project_id} to coverage areas")
-        links = await risk_calculator.get_links(project_id, urban_areas)
+        links = await risk_calculator.get_links(project_id, urban_areas, region_territories)
         response = {
         'coverage_areas': json.loads(urban_areas.to_json()),
         'links_to_project': json.loads(links.to_json())
