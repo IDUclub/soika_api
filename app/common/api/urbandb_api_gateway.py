@@ -27,8 +27,8 @@ class UrbanDBAPI:
                     logger.info(f"Child territories for territory_id {territory_id} successfully fetched from API.")
                     territories = []
                     for territory in json_data['results']:
-                        territories.append([territory['name'], shape(territory['geometry'])])
-                    territories = gpd.GeoDataFrame(pd.DataFrame(territories, columns=['name', 'geometry']), geometry='geometry', crs=4326)    
+                        territories.append([territory['name'], territory['territory_id'], territory['admin_center'], territory['is_city'], shape(territory['geometry'])])
+                    territories = gpd.GeoDataFrame(pd.DataFrame(territories, columns=['name', 'territory_id', 'admin_center', 'is_city', 'geometry']), geometry='geometry', crs=4326)    
                     return territories
                 else:
                     logger.error(f"Failed to fetch child territories, status code: {response.status}")
@@ -46,8 +46,8 @@ class UrbanDBAPI:
                 if response.status == 200:
                     json_data = await response.json()
                     logger.info(f"Territory for territory_id {territory_id} successfully fetched from API.")
-                    territory = [json_data['name'], shape(json_data['geometry'])]
-                    territory = gpd.GeoDataFrame(pd.DataFrame([territory], columns = ['name', 'geometry']), geometry='geometry', crs=4326) 
+                    territory = [json_data['name'], json_data['territory_id'], json_data['admin_center'], json_data['is_city'], shape(json_data['geometry'])]
+                    territory = gpd.GeoDataFrame(pd.DataFrame([territory], columns = ['name', 'territory_id', 'admin_center', 'is_city', 'geometry']), geometry='geometry', crs=4326)
                     return territory
                 else:
                     logger.error(f"Failed to fetch territory, status code: {response.status}")
@@ -60,7 +60,7 @@ class UrbanDBAPI:
         parent_territory = await self.get_territory(territory_id)
         child_territories = await self.get_child_territories(territory_id, 1, 10000)
         territories = pd.concat([parent_territory, child_territories])
-        territories = territories.explode().reset_index(drop=True).drop_duplicates(subset='name')
+        territories = territories.explode().reset_index(drop=True).drop_duplicates(subset='name') #need to check for bugs later
         return territories
 
     async def get_project_territory_centroid(self, project_id):
