@@ -118,21 +118,38 @@ class RiskCalculation:
         grouped['risk_rating'] = grouped.sum(axis=1).clip(upper=5).round(0).astype(int)
         grouped['description'] = 'placeholder'
         grouped = grouped[['risk_rating', 'description']]
-        score_dict = grouped.to_dict()
 
-        return score_dict
+        return grouped
 
     async def calculate_social_risk(self, territory_id, project_id):
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
+
         if len(texts['texts']) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
+
         logger.info(f"Calculating social risk for project {project_id} and its context")
         scored_texts = await risk_calculator.calculate_score(texts['texts'])
-        result_dict = await risk_calculator.score_table(scored_texts)
+        score_df = await risk_calculator.score_table(scored_texts)
+
+        texts_df = texts['texts'].copy()
+        texts_df = texts_df[['text', 'services', 'indicators']]
+        texts_df = texts_df.groupby(
+            ['text', 'services'] 
+        ).agg({ 
+            'indicators': lambda x: ', '.join(set(x))
+        }).reset_index()
+        result_df = texts_df.groupby('services').agg({
+            'text': lambda x: list(x),
+            'indicators': lambda x: list(x)
+        }).reset_index()
+        merged_df = score_df.merge(result_df, on='services', how='left')
+
+        result_dict = merged_df.to_dict(orient='records')
+
         response = {'social_risk_table': result_dict}
         logger.info(f"Table response generated")
         return response
