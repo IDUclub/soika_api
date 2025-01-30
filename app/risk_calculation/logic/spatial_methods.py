@@ -115,8 +115,14 @@ class RiskCalculation:
 
     @staticmethod
     def generate_description(row):
-        risk_text = f"Сервис «{row.name}» имеет {row['risk_level']} степень общественного резонанса."
-        indicators_list = row['top_indicators'].split(', ')
+        service_name = row.name
+        risk_level = row["risk_level"]
+        top_indicators = row["top_indicators"]
+        activity_level = row["activity_level"]
+        emotion = row["emotion"]
+
+        risk_text = f"Сервис «{service_name}» имеет {risk_level} степень общественного резонанса."
+        indicators_list = top_indicators.split(', ')
         indicator_count = len(indicators_list)
         if indicator_count == 1:
             indicators_text = (
@@ -133,14 +139,14 @@ class RiskCalculation:
                 f"включая {', '.join(indicators_list[:2])}."
             )
         activity_text = (
-            f"Уровень распространения информации является {row['activity_level']}."
+            f"Уровень распространения информации является {activity_level}."
         )
         emotion_mapping = {
             "negative": "негативную",
             "positive": "положительную",
             "neutral": "нейтральную"
         }
-        emotion_descr = emotion_mapping.get(row["emotion"], row["emotion"])
+        emotion_descr = emotion_mapping.get(emotion, emotion)
         emotion_text = (
             f"Эмоциональную окраску дискуссии можно охарактеризовать как преимущественно {emotion_descr}."
         )
@@ -152,11 +158,11 @@ class RiskCalculation:
 
         if indicator_count > 1:
             base_priorities["indicators"] += 2
-        if row["emotion"] in ["negative", "positive"]:
+        if emotion in ["negative", "positive"]:
             base_priorities["emotion"] += 2  
-        if row["activity_level"] == "активным":
+        if activity_level == "активным":
             base_priorities["activity"] += 2  
-        if indicator_count == 1 and row["emotion"] == "negative":
+        if indicator_count == 1 and emotion == "negative":
             if base_priorities["emotion"] <= base_priorities["indicators"]:
                 base_priorities["emotion"] = base_priorities["indicators"] + 1
 
