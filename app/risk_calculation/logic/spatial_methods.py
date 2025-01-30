@@ -79,47 +79,130 @@ class RiskCalculation:
             'texts': local_texts.to_crs(epsg=4326)
         }
 
-    async def calculate_score(self, dataframe):
-        """
-        Calculates scores based on emotions, views, likes, and reposts.
-        
-        Args:
-            dataframe (pd.DataFrame): Input DataFrame.
-
-        Returns:
-            pd.DataFrame: DataFrame with an added `score` column.
-        """
-        df = dataframe.copy()
+    async def calculate_score(self, df):
+        df = df.copy()
         df['emotion_weight'] = df['emotion'].map(self.emotion_weights)
-
         df['minmaxed_views'] = (df['views.count'] - df['views.count'].min()) / (df['views.count'].max() - df['views.count'].min())
         df['minmaxed_likes'] = (df['likes.count'] - df['likes.count'].min()) / (df['likes.count'].max() - df['likes.count'].min())
         df['minmaxed_reposts'] = (df['reposts.count'] - df['reposts.count'].min()) / (df['reposts.count'].max() - df['reposts.count'].min())
-
-        df['score'] = df.fillna(0).apply(
-            lambda row: (row['minmaxed_views'] + row['minmaxed_likes'] + row['minmaxed_reposts'] + 1) * row['emotion_weight'],
+        df['engagement_score'] = df.fillna(0).apply(
+            lambda row: row['minmaxed_views'] + row['minmaxed_likes'] + row['minmaxed_reposts'] + 1,
             axis=1
         )
+        low_threshold = df['engagement_score'].quantile(1/3)
+        high_threshold = df['engagement_score'].quantile(2/3)
+        df['activity_level'] = df['engagement_score'].apply(
+            lambda x: "активным" if x >= high_threshold else ("умеренно активным" if x >= low_threshold else "малоактивным")
+        )
+        df['score'] = df['engagement_score'] * df['emotion_weight']
         df['score'] = df['score'].round(4)
+        return df.drop(columns=['minmaxed_views', 'minmaxed_likes', 'minmaxed_reposts', 'engagement_score'])
 
-        return df.drop(columns=['minmaxed_views', 'minmaxed_likes', 'minmaxed_reposts'])
+    @staticmethod
+    def get_top_indicators(row):
+        nonzero_values = row[row != 0]
+        top_two = nonzero_values.nlargest(2).index.tolist()
+        declensions = {
+            "Строительство": "строительством",
+            "Снос": "сносом",
+            "Противоречие": "противоречиями",
+            "Доступность": "доступностью",
+            "Обеспеченность": "обеспеченностью"
+        }
+        declined = [declensions.get(ind, ind) for ind in top_two]
+        preposition = "со" if declined and declined[0][0] == "с" else "с"
+        return f"{preposition} {', '.join(declined)}" if declined else "без явных индикаторов"
 
-    async def score_table(self, dataframe):
-        """
-        Generates a table with average scores for each (service, indicator) pair.
+    @staticmethod
+    def generate_description(row):
+        service_name = row.name
+        risk_level = row["risk_level"]
+        top_indicators = row["top_indicators"]
+        activity_level = row["activity_level"]
+        emotion = row["emotion"]
+
+        risk_text = f"Сервис «{service_name}» имеет {risk_level} степень общественного резонанса."
+        indicators_list = top_indicators.split(', ')
+        indicator_count = len(indicators_list)
+        if indicator_count == 1:
+            indicators_text = (
+                f"Среди показателей выделяется один ключевой — {indicators_list[0]}."
+            )
+        elif 2 <= indicator_count <= 4:
+            indicators_text = (
+                f"Среди показателей можно отметить {indicator_count} основных: "
+                f"{', '.join(indicators_list)}."
+            )
+        else:
+            indicators_text = (
+                f"Среди показателей выделяется несколько основных (всего {indicator_count}), "
+                f"включая {', '.join(indicators_list[:2])}."
+            )
+        activity_text = (
+            f"Уровень распространения информации является {activity_level}."
+        )
+        emotion_mapping = {
+            "negative": "негативную",
+            "positive": "положительную",
+            "neutral": "нейтральную"
+        }
+        emotion_descr = emotion_mapping.get(emotion, emotion)
+        emotion_text = (
+            f"Эмоциональную окраску дискуссии можно охарактеризовать как преимущественно {emotion_descr}."
+        )
+        base_priorities = {
+            "indicators": 2,  
+            "activity": 1,
+            "emotion": 1
+        }
+
+        if indicator_count > 1:
+            base_priorities["indicators"] += 2
+        if emotion in ["negative", "positive"]:
+            base_priorities["emotion"] += 2  
+        if activity_level == "активным":
+            base_priorities["activity"] += 2  
+        if indicator_count == 1 and emotion == "negative":
+            if base_priorities["emotion"] <= base_priorities["indicators"]:
+                base_priorities["emotion"] = base_priorities["indicators"] + 1
+
+        other_blocks = {
+            "indicators": (base_priorities["indicators"], indicators_text),
+            "activity": (base_priorities["activity"], activity_text),
+            "emotion": (base_priorities["emotion"], emotion_text)
+        }
+        sorted_other_blocks = sorted(
+            other_blocks.items(),
+            key=lambda x: x[1][0],
+            reverse=True
+        )
+        final_description = " ".join(
+            [risk_text] + [block[1][1] for block in sorted_other_blocks]
+        )
+        return final_description
+    
+    @staticmethod
+    async def score_table(df):
+        score_df = df.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
+        score_df_numeric = score_df.copy()
+        score_df["top_indicators"] = score_df_numeric.apply(risk_calculator.get_top_indicators, axis=1)
+        score_df['risk_rating'] = score_df_numeric.sum(axis=1).clip(upper=5).round(0).astype(int)
+        score_df['risk_level'] = score_df['risk_rating'].map(lambda x: "высокую" if x >= 4 else ("среднюю" if 2 <= x < 4 else "низкую"))
+    
+        emotion_table = df.groupby('services')['emotion'].agg(lambda x: x.mode().iloc[0])
+        activity_translation = {
+            "активным": "активным",
+            "умеренно активным": "умеренным",
+            "малоактивным": "слабым"
+        }
+        activity_table = df.groupby('services')['activity_level'].agg(lambda x: x.mode().iloc[0])
         
-        Args:
-            dataframe (pd.DataFrame): Input DataFrame.
-
-        Returns:
-            dict: A dictionary where keys are indicators and values are scores for each service.
-        """
-        grouped = dataframe.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
-        grouped['risk_rating'] = grouped.sum(axis=1).clip(upper=5).round(0).astype(int)
-        grouped['description'] = 'placeholder'
-        grouped = grouped[['risk_rating', 'description']]
-
-        return grouped
+        final_table = score_df.join(emotion_table)
+        final_table = final_table.join(activity_table)
+        final_table["activity_level"] = final_table["activity_level"].map(activity_translation)
+        final_table["description"] = final_table.apply(risk_calculator.generate_description, axis=1)
+        final_table = final_table[['risk_rating', 'description']]
+        return final_table
 
     async def calculate_social_risk(self, territory_id, project_id):
         logger.info(f"Retrieving texts for project {project_id} and its context")
