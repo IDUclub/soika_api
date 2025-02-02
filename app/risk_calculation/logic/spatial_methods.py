@@ -92,7 +92,7 @@ class RiskCalculation:
         low_threshold = df['engagement_score'].quantile(1/3)
         high_threshold = df['engagement_score'].quantile(2/3)
         df['activity_level'] = df['engagement_score'].apply(
-            lambda x: "активным" if x >= high_threshold else ("умеренно активным" if x >= low_threshold else "малоактивным")
+            lambda x: "активно" if x >= high_threshold else ("умеренно" if x >= low_threshold else "мало")
         )
         df['score'] = df['engagement_score'] * df['emotion_weight']
         df['score'] = df['score'].round(4)
@@ -101,17 +101,16 @@ class RiskCalculation:
     @staticmethod
     def get_top_indicators(row):
         nonzero_values = row[row != 0]
-        top_two = nonzero_values.nlargest(2).index.tolist()
+        top_indicators = nonzero_values.nlargest(4).index.tolist()
         declensions = {
-            "Строительство": "строительством",
-            "Снос": "сносом",
-            "Противоречие": "противоречиями",
-            "Доступность": "доступностью",
-            "Обеспеченность": "обеспеченностью"
+            "Строительство": "строительство",
+            "Снос": "снос",
+            "Противоречие": "противоречие",
+            "Доступность": "доступность",
+            "Обеспеченность": "обеспеченность"
         }
-        declined = [declensions.get(ind, ind) for ind in top_two]
-        preposition = "со" if declined and declined[0][0] == "с" else "с"
-        return f"{preposition} {', '.join(declined)}" if declined else "без явных индикаторов"
+        declined = [declensions.get(ind, ind) for ind in top_indicators]
+        return f"{', '.join(declined)}" if declined else "без явных индикаторов"
 
     @staticmethod
     def generate_description(row):
@@ -121,25 +120,35 @@ class RiskCalculation:
         activity_level = row["activity_level"]
         emotion = row["emotion"]
 
-        risk_text = f"Сервис «{service_name}» имеет {risk_level} степень общественного резонанса."
+        risk_text = f"Сервис «{service_name}» характеризуется {risk_level} степенью общественного резонанса."
         indicators_list = top_indicators.split(', ')
         indicator_count = len(indicators_list)
+        number_words = {
+            1: "один",
+            2: "два",
+            3: "три",
+            4: "четыре",
+            5: "пять"
+        }
+        
+        indicator_count_word = number_words.get(indicator_count, str(indicator_count))
+
         if indicator_count == 1:
             indicators_text = (
-                f"Среди показателей выделяется один ключевой — {indicators_list[0]}."
+                f"Среди показателей оценки уровня общественного резонанса выделяется один ключевой - {indicators_list[0]} сервиса данного типа."
             )
-        elif 2 <= indicator_count <= 4:
+        elif indicator_count == 2:
             indicators_text = (
-                f"Среди показателей можно отметить {indicator_count} основных: "
-                f"{', '.join(indicators_list)}."
+                f"Среди показателей оценки уровня общественного резонанса выделяется {indicator_count_word}: "
+                f"{' и '.join(indicators_list)} сервисов данного типа."
             )
         else:
             indicators_text = (
-                f"Среди показателей выделяется несколько основных (всего {indicator_count}), "
-                f"включая {', '.join(indicators_list[:2])}."
+                f"Среди показателей оценки уровня общественного резонанса выделяется {indicator_count_word}: "
+                f"{', '.join(indicators_list)} сервиса данного типа."
             )
         activity_text = (
-            f"Уровень распространения информации является {activity_level}."
+            f"Сервис {activity_level} обсуждается пользователями."
         )
         emotion_mapping = {
             "negative": "негативную",
@@ -160,7 +169,7 @@ class RiskCalculation:
             base_priorities["indicators"] += 2
         if emotion in ["negative", "positive"]:
             base_priorities["emotion"] += 2  
-        if activity_level == "активным":
+        if activity_level == "активно":
             base_priorities["activity"] += 2  
         if indicator_count == 1 and emotion == "negative":
             if base_priorities["emotion"] <= base_priorities["indicators"]:
@@ -187,19 +196,13 @@ class RiskCalculation:
         score_df_numeric = score_df.copy()
         score_df["top_indicators"] = score_df_numeric.apply(risk_calculator.get_top_indicators, axis=1)
         score_df['risk_rating'] = score_df_numeric.sum(axis=1).clip(upper=5).round(0).astype(int)
-        score_df['risk_level'] = score_df['risk_rating'].map(lambda x: "высокую" if x >= 4 else ("среднюю" if 2 <= x < 4 else "низкую"))
+        score_df['risk_level'] = score_df['risk_rating'].map(lambda x: "высокой" if x >= 4 else ("средней" if 2 <= x < 4 else "низкой"))
     
         emotion_table = df.groupby('services')['emotion'].agg(lambda x: x.mode().iloc[0])
-        activity_translation = {
-            "активным": "активным",
-            "умеренно активным": "умеренным",
-            "малоактивным": "слабым"
-        }
         activity_table = df.groupby('services')['activity_level'].agg(lambda x: x.mode().iloc[0])
         
         final_table = score_df.join(emotion_table)
         final_table = final_table.join(activity_table)
-        final_table["activity_level"] = final_table["activity_level"].map(activity_translation)
         final_table["description"] = final_table.apply(risk_calculator.generate_description, axis=1)
         final_table = final_table[['risk_rating', 'description']]
         return final_table
