@@ -27,8 +27,17 @@ class UrbanDBAPI:
                     logger.info(f"Child territories for territory_id {territory_id} successfully fetched from API.")
                     territories = []
                     for territory in json_data['results']:
-                        territories.append([territory['name'], territory['territory_id'], territory['admin_center'], territory['is_city'], territory['parent']['id'], territory['level'], shape(territory['geometry'])])
-                    territories = gpd.GeoDataFrame(pd.DataFrame(territories, columns=['name', 'territory_id', 'admin_center', 'is_city', 'parent_id', 'level', 'geometry']), geometry='geometry', crs=4326)    
+                        territories.append([
+                            territory['name'], 
+                            territory['territory_id'], 
+                            territory['admin_center'], 
+                            territory['is_city'], 
+                            territory['parent']['id'], 
+                            territory['level'], 
+                            shape(territory['geometry'])])
+                    territories = gpd.GeoDataFrame(pd.DataFrame(territories, columns=[
+                        'name', 'territory_id', 'admin_center', 'is_city', 'parent_id', 'level', 'geometry']), geometry='geometry', crs=4326)
+                    territories['admin_center'] = territories['admin_center'].apply(lambda x: x.get('id') if isinstance(x, dict) else None)
                     return territories
                 else:
                     logger.error(f"Failed to fetch child territories, status code: {response.status}")
@@ -46,8 +55,17 @@ class UrbanDBAPI:
                 if response.status == 200:
                     json_data = await response.json()
                     logger.info(f"Territory for territory_id {territory_id} successfully fetched from API.")
-                    territory = [json_data['name'], json_data['territory_id'], json_data['admin_center'], json_data['is_city'], json_data['parent']['id'], json_data['level'], shape(json_data['geometry'])]
-                    territory = gpd.GeoDataFrame(pd.DataFrame([territory], columns = ['name', 'territory_id', 'admin_center', 'is_city', 'parent_id', 'level', 'geometry']), geometry='geometry', crs=4326)
+                    territory = [
+                        json_data['name'], 
+                        json_data['territory_id'], 
+                        json_data['admin_center'], 
+                        json_data['is_city'], 
+                        json_data['parent']['id'], 
+                        json_data['level'], 
+                        shape(json_data['geometry'])]
+                    territory = gpd.GeoDataFrame(pd.DataFrame([territory], columns = [
+                        'name', 'territory_id', 'admin_center', 'is_city', 'parent_id', 'level', 'geometry']), geometry='geometry', crs=4326)
+                    territory['admin_center'] = territory['admin_center'].apply(lambda x: x.get('id') if isinstance(x, dict) else None)
                     return territory
                 else:
                     logger.error(f"Failed to fetch territory, status code: {response.status}")
