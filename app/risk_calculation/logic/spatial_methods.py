@@ -338,6 +338,7 @@ class RiskCalculation:
         values_to_risk_table.reset_index(inplace=True)
         values_to_risk_table.rename(columns={"index": "category"}, inplace=True)
         values_to_risk_table['category'] = values_to_risk_table['category'].map(risk_calculator.generate_value_names)
+        values_to_risk_table.dropna(subset='Поддержка ценностей', inplace=True)
         response = {'values_to_risk_table': values_to_risk_table.to_dict(orient='records')}
         logger.info(f"Table response generated")
         return response
