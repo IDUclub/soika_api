@@ -7,7 +7,7 @@ from fastapi import APIRouter, Query, Depends
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
 from app.risk_calculation.logic.spatial_methods import risk_calculator
-from app.risk_calculation.logic.constants import TEXTS, bucket_name, text_name
+from app.risk_calculation.logic.constants import TEXTS, CONSTANTS, bucket_name, text_name, constants_name
 
 router = APIRouter()
 
@@ -62,4 +62,22 @@ async def get_texts_for_territory(
     TEXTS.try_init(bucket_name, text_name)
     response = await risk_calculator.collect_texts(dto.territory_id, dto.project_id)
     logger.info("Texts for social risk collected")
+    return response
+
+@router.get("/risk_values/")
+async def generate_risk_values_table(
+    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+) -> dict:
+    """Function to generate table for values and risk for the territory
+    Args:
+        territory_id (int): ID of the territory
+        project_id (int): ID of the project
+    Returns:
+        dict: dict with risk-to-values table
+    """
+    logger.info(f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}")
+    TEXTS.try_init(bucket_name, text_name)
+    CONSTANTS.try_init(bucket_name, constants_name)
+    response = await risk_calculator.calculate_values_to_risk_data(dto.territory_id, dto.project_id)
+    logger.info("Risk-values table generated")
     return response
