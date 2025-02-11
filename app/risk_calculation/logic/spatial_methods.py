@@ -6,7 +6,7 @@ import asyncio
 from loguru import logger
 from shapely.geometry import shape, LineString
 from geojson_pydantic import MultiPolygon, Polygon, Point
-from app.risk_calculation.logic.constants import TEXTS, CONSTANTS
+from app.risk_calculation.logic.constants import TEXTS, CONSTANTS, OBJECTS
 from app.common.api.urbandb_api_gateway import urban_db_api
 from app.common.api.values_api_gateway import values_api
 
@@ -271,7 +271,7 @@ class RiskCalculation:
             while territory.iloc[0]['level'] < 4:
                 parent_id = territory.iloc[0]['parent_id']
                 if parent_id is None:
-                    break  # Если нет родителя, остановиться
+                    break 
                 territory = await urban_db_api.get_territory(parent_id)
             return territory
 
@@ -420,5 +420,41 @@ class RiskCalculation:
         }
         return response
         
+    @staticmethod
+    async def get_objects(territory_gdf: gpd.GeoDataFrame):
+        """
+        Retrieves the objects for the given territory.
+
+        Args:
+            territory_gdf (gpd.GeoDataFrame): A GeoDataFrame representing the area of interest.
+
+        Returns:
+            Dict[str, Any]: A dictionary with an 'objects' key containing the GeoDataFrame in EPSG:4326.
+        """
+        territory_gdf = territory_gdf.copy()
+        objects_gdf = OBJECTS.gdf.copy()
+        local_crs = territory_gdf.estimate_utm_crs()
+        territory_gdf = territory_gdf.to_crs(local_crs)
+        objects_gdf = objects_gdf.to_crs(local_crs)
+        local_objects = gpd.clip(objects_gdf, territory_gdf)
+        return {
+            'objects': local_objects.to_crs(epsg=4326)
+        }
+
+    async def collect_named_objects(self, territory_id, project_id):
+        logger.info(f"Retrieving objects for project {project_id} and its context")
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        objects_result = await risk_calculator.get_objects(project_area)
+        local_objects = objects_result['objects']
+
+        if local_objects.empty:
+            logger.info("No objects for this area")
+            return {}
+
+        response = {
+            'named_objects': json.loads(local_objects.to_json())
+        }
+        return response
+
 
 risk_calculator = RiskCalculation()
