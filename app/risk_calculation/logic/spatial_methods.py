@@ -262,7 +262,6 @@ class RiskCalculation:
                 values = value_type[0]
                 index_name = f"{values}/{social_group}"
                 result_series[index_name] = row['total_score']
-        logger.info(f"{mapping_df}")
 
         return result_series
 
@@ -351,8 +350,7 @@ class RiskCalculation:
         values_to_risk_table.dropna(subset='Поддержка ценностей', inplace=True)
         category_table = risk_calculator.generate_category_table()
         values_to_risk_table = values_to_risk_table.merge(category_table, on='category', how='left')
-        values_to_risk_table['services'].fillna('Нет данных по сервисам', inplace=True)
-        logger.info(f"{values_to_risk_table}")
+        values_to_risk_table['services'] = values_to_risk_table['services'].fillna('Нет данных по сервисам')
         response = {'values_to_risk_table': values_to_risk_table.to_dict(orient='records')}
         logger.info(f"Table response generated")
         return response
