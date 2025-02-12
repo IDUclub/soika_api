@@ -262,7 +262,8 @@ class RiskCalculation:
                 values = value_type[0]
                 index_name = f"{values}/{social_group}"
                 result_series[index_name] = row['total_score']
-    
+        logger.info(f"{mapping_df}")
+
         return result_series
 
     @staticmethod
@@ -305,6 +306,15 @@ class RiskCalculation:
         value_key, group_key = value.split("/")
         return f"{value_mapping.get(value_key, value_key)} {group_mapping.get(group_key, group_key)}"
 
+    def generate_category_table(self):
+        mapping_df = pd.DataFrame(CONSTANTS.json['service_to_values_mapping'])
+        mapping_df['category'] = mapping_df['values'] + '/' + mapping_df['social_group']
+        mapping_df['category'] =  mapping_df['category'].map(risk_calculator.generate_value_names)
+        category_table = mapping_df.groupby('category').agg({
+            'services': lambda x: ', '.join(x.dropna().astype(str))
+        })
+        return category_table
+
     async def calculate_values_to_risk_data(self, territory_id, project_id):
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
@@ -339,6 +349,10 @@ class RiskCalculation:
         values_to_risk_table.rename(columns={"index": "category"}, inplace=True)
         values_to_risk_table['category'] = values_to_risk_table['category'].map(risk_calculator.generate_value_names)
         values_to_risk_table.dropna(subset='Поддержка ценностей', inplace=True)
+        category_table = risk_calculator.generate_category_table()
+        values_to_risk_table = values_to_risk_table.merge(category_table, on='category', how='left')
+        values_to_risk_table['services'].fillna('Нет данных по сервисам', inplace=True)
+        logger.info(f"{values_to_risk_table}")
         response = {'values_to_risk_table': values_to_risk_table.to_dict(orient='records')}
         logger.info(f"Table response generated")
         return response
