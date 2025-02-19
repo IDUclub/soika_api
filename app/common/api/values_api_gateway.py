@@ -26,11 +26,19 @@ class ValuesAPI:
                     df_values = pd.DataFrame.from_dict(json_data, orient='index')
                     df_melted = df_values.stack().reset_index()
                     df_melted.columns = ['social_group', 'value', 'indicator']
+                    df_melted['indicator'] = df_melted['indicator'].map(lambda x: x[0])
                     df_melted['social_value'] = df_melted['value'] + '/' + df_melted['social_group']
-                    df_melted.set_index(df_melted['social_value'], inplace=True)
+                    df_melted.set_index('social_value', inplace=True)
+                    
+                    if not pd.api.types.is_numeric_dtype(df_melted['indicator']):
+                        error_message = f"Failed to parse valued_identities data: unexpected type {df_melted['indicator'].dtype}"
+                        logger.error(error_message)
+                        raise http_exception(response.status, error_message, str(response.url))
+                    
                     return df_melted['indicator']
                 else:
-                    logger.error(f"Failed to fetch values data, status code: {response.status}")
-                    raise http_exception(response.status, f"Failed to fetch values data", str(response.url))
+                    error_message = f"Failed to fetch values data, status code: {response.status}"
+                    logger.error(error_message)
+                    raise http_exception(response.status, error_message, str(response.url))
        
 values_api = ValuesAPI()
