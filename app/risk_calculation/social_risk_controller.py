@@ -9,10 +9,10 @@ from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryReque
 from app.risk_calculation.logic.spatial_methods import risk_calculator
 from app.risk_calculation.logic.constants import TEXTS, CONSTANTS, OBJECTS, bucket_name, text_name, constants_name, objects_name
 
-router = APIRouter()
+calculation_router = APIRouter()
 
 
-@router.get("/social_risk/")
+@calculation_router.get("/social_risk/")
 async def get_social_risk(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
@@ -29,7 +29,7 @@ async def get_social_risk(
     return response
 
 
-@router.get("/risk_coverage_areas/")
+@calculation_router.get("/risk_coverage_areas/")
 async def get_social_risk_coverage(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
@@ -47,7 +47,7 @@ async def get_social_risk_coverage(
     return response
 
 
-@router.get("/collect_texts/")
+@calculation_router.get("/collect_texts/")
 async def get_texts_for_territory(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
@@ -64,7 +64,7 @@ async def get_texts_for_territory(
     logger.info("Texts for social risk collected")
     return response
 
-@router.get("/risk_values/")
+@calculation_router.get("/risk_values/")
 async def generate_risk_values_table(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
@@ -82,7 +82,7 @@ async def generate_risk_values_table(
     logger.info("Risk-values table generated")
     return response
 
-@router.get("/named_objects/")
+@calculation_router.get("/named_objects/")
 async def get_named_objects(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
