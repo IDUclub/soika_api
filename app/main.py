@@ -6,10 +6,9 @@ from loguru import logger
 
 from app.common.config import config
 from app.risk_calculation.social_risk_controller import calculation_router
-from app.risk_calculation.preprocessing_controller import preprocessing_router
+from app.risk_calculation.preprocessing_controller import territories_router, groups_router, messages_router, named_objects_router, indicators_router, services_router
 from app.risk_calculation.logic.preprocessing_methods import preprocessing
 
-# Настройка логирования
 logger.remove()
 logger.add(
     sys.stdout,
@@ -35,9 +34,13 @@ app.add_middleware(
 )
 
 app.include_router(calculation_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Analysis'])
-app.include_router(preprocessing_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Preprocessing'])
+app.include_router(territories_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Territories'])
+app.include_router(groups_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Groups'])
+app.include_router(messages_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Messages'])
+app.include_router(named_objects_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Named objects'])
+app.include_router(indicators_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Indicators'])
+app.include_router(services_router, prefix=config.get("FASTAPI_PREFIX"), tags=['Services'])
 
-# Глобальный обработчик исключений
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error occurred")
