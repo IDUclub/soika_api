@@ -1,5 +1,16 @@
 from app.common.config import config
-from app.common.db.database import database, Territory, Group, Message, NamedObject, Territory, Indicator, MessageIndicator, Service, MessageService
+from app.common.db.database import (
+    database,
+    Territory,
+    Group,
+    Message,
+    NamedObject,
+    Territory,
+    Indicator,
+    MessageIndicator,
+    Service,
+    MessageService,
+)
 from sqlalchemy import select, func
 import asyncio
 import numpy as np
@@ -23,7 +34,9 @@ from tqdm import tqdm
 import osmnx as ox
 import ast
 from shapely.geometry import Point
-#TODO: разбить методы соответственно роутерам
+
+
+# TODO: разбить методы соответственно роутерам
 class Preprocessing:
     def __init__(self):
         self.executor = ThreadPoolExecutor(max_workers=4)
@@ -48,7 +61,7 @@ class Preprocessing:
         return tagger
 
     # Костыль для форсированного запуска модели геокодинга на ЦПУ.
-    #TODO: переобучить модель с flair на pytorch transformers
+    # TODO: переобучить модель с flair на pytorch transformers
     _original_sequence_tagger_load = SequenceTagger.load
     SequenceTagger.load = _load_flair_model_cpu.__func__
 
@@ -63,15 +76,23 @@ class Preprocessing:
         classification_model_name = "Sandrro/emotions_classificator_v4"
         ner_model_name = "Geor111y/flair-ner-addresses-extractor"
 
-        logger.info(f"Launching classification model {classification_model_name} for {classification_pipeline}")
+        logger.info(
+            f"Launching classification model {classification_model_name} for {classification_pipeline}"
+        )
         self._classification_model = await loop.run_in_executor(
             self.executor,
-            lambda: pipeline(classification_pipeline, model=classification_model_name, truncation=True, max_length=512) #TODO: нужно будет наладить обработку по частям
+            lambda: pipeline(
+                classification_pipeline,
+                model=classification_model_name,
+                truncation=True,
+                max_length=512,
+            ),  # TODO: нужно будет наладить обработку по частям
         )
-        logger.info(f"Launching NER model {ner_model_name} with Flair SequenceTagger (forcing CPU)")
+        logger.info(
+            f"Launching NER model {ner_model_name} with Flair SequenceTagger (forcing CPU)"
+        )
         self._ner_model = await loop.run_in_executor(
-            self.executor,
-            lambda: SequenceTagger.load(ner_model_name)
+            self.executor, lambda: SequenceTagger.load(ner_model_name)
         )
 
     def get_classification_model(self):
@@ -85,14 +106,16 @@ class Preprocessing:
         async with database.session() as session:
             territory = await session.get(Territory, territory_id)
             if not territory:
-                raise HTTPException(status_code=404, detail=f"Territory with id={territory_id} not found")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Territory with id={territory_id} not found",
+                )
             territory_name = territory.name
             query = select(Group).where(Group.matched_territory == territory_name)
             result = await session.execute(query)
             groups = result.scalars().all()
-        
-        return groups
 
+        return groups
 
     @staticmethod
     async def get_latest_message_date_by_territory(territory_name: str):
@@ -105,7 +128,10 @@ class Preprocessing:
             query = (
                 select(func.max(Message.date))
                 .select_from(Territory)
-                .join(territory_group, Territory.territory_id == territory_group.c.territory_id)
+                .join(
+                    territory_group,
+                    Territory.territory_id == territory_group.c.territory_id,
+                )
                 .join(Group, territory_group.c.group_id == Group.group_id)
                 .join(Message, Group.group_id == Message.group_id)
                 .where(Territory.name == territory_name)
@@ -123,7 +149,7 @@ class Preprocessing:
             new_territory = Territory(
                 territory_id=payload.territory_id,
                 name=payload.name,
-                matched_territory=payload.matched_territory
+                matched_territory=payload.matched_territory,
             )
             session.add(new_territory)
             await session.commit()
@@ -131,16 +157,15 @@ class Preprocessing:
             return new_territory
 
     async def search_vk_groups(
-        self,
-        territory_id: int,
-        sort: int = 4,
-        count: int = 20,
-        version: str = "5.131"
+        self, territory_id: int, sort: int = 4, count: int = 20, version: str = "5.131"
     ) -> str:
         async with database.session() as session:
             territory = await session.get(Territory, territory_id)
             if not territory:
-                raise HTTPException(status_code=404, detail=f"Territory with id={territory_id} not found")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Territory with id={territory_id} not found",
+                )
 
             territory_name = territory.name
 
@@ -150,30 +175,33 @@ class Preprocessing:
             "sort": sort,
             "count": count,
             "access_token": group_access_key,
-            "v": version
+            "v": version,
         }
 
-        response = await asyncio.to_thread(requests.get, "https://api.vk.com/method/groups.search", params=params)
+        response = await asyncio.to_thread(
+            requests.get, "https://api.vk.com/method/groups.search", params=params
+        )
         data = response.json()
 
-        df = pd.DataFrame(data['response']['items'])[['id', 'name', 'screen_name']]
-        df.rename(columns={'screen_name': 'group_domain', 'id': 'group_id'}, inplace=True)
-        df['matched_territory'] = territory_name
+        df = pd.DataFrame(data["response"]["items"])[["id", "name", "screen_name"]]
+        df.rename(
+            columns={"screen_name": "group_domain", "id": "group_id"}, inplace=True
+        )
+        df["matched_territory"] = territory_name
 
         records = df.to_dict("records")
         async with database.session() as session:
             for record in records:
                 group_obj = Group(
-                    group_id=record['group_id'],
-                    name=record['name'],
-                    group_domain=record['group_domain'],
-                    matched_territory=record['matched_territory']
+                    group_id=record["group_id"],
+                    name=record["name"],
+                    group_domain=record["group_domain"],
+                    matched_territory=record["matched_territory"],
                 )
                 session.add(group_obj)
             await session.commit()
 
         return territory_name
-
 
     async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None):
         """
@@ -188,7 +216,9 @@ class Preprocessing:
         чтобы после каждой группы сразу делать commit.
         """
         if not cutoff_date:
-            latest_date = await self.get_latest_message_date_by_territory_id(territory_id)
+            latest_date = await self.get_latest_message_date_by_territory_id(
+                territory_id
+            )
             if latest_date:
                 next_day = latest_date + timedelta(days=1)
                 cutoff_date = next_day.strftime("%Y-%m-%d")
@@ -207,21 +237,23 @@ class Preprocessing:
         )
 
         for group in groups:
-            logger.info(f"Processing group_id={group.group_id}, domain={group.group_domain}...")
+            logger.info(
+                f"Processing group_id={group.group_id}, domain={group.group_domain}..."
+            )
 
             df = parser.run_parser(
                 domain=group.group_domain,
                 access_token=access_key,
-                cutoff_date=cutoff_date
+                cutoff_date=cutoff_date,
             )
 
             if df.empty:
                 logger.info(f"No new messages for group_id={group.group_id}. Skipping.")
                 continue
 
-            df['group_id'] = group.group_id
+            df["group_id"] = group.group_id
             df = df.replace({np.nan: None})
-            df['date'] = pd.to_datetime(df['date'], utc=True)
+            df["date"] = pd.to_datetime(df["date"], utc=True)
             messages_data = df.to_dict("records")
 
             for message in messages_data:
@@ -252,7 +284,7 @@ class Preprocessing:
                         score=msg["score"],
                         geometry=msg["geometry"],
                         location=msg["location"],
-                        is_processed=msg["is_processed"]
+                        is_processed=msg["is_processed"],
                     )
                     session.add(message_obj)
 
@@ -277,7 +309,7 @@ class Preprocessing:
         model = self.get_classification_model()
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(self.executor, model, text)
-        return result[0]['label']
+        return result[0]["label"]
 
     async def get_osm_id_by_territory_name(self, territory_name: str) -> int | None:
         """
@@ -295,6 +327,7 @@ class Preprocessing:
             except Exception as e:
                 logger.error(f"Error geocoding '{name}' via osmnx: {e}")
                 return None
+
         osm_id = await loop.run_in_executor(None, _sync_geocode, territory_name)
         return osm_id
 
@@ -307,8 +340,9 @@ class Preprocessing:
         """
         return f"SRID={srid};POINT({geom.x} {geom.y})"
 
-
-    async def extract_addresses_for_unprocessed(self, device: str = "cpu") -> list[dict]:
+    async def extract_addresses_for_unprocessed(
+        self, device: str = "cpu"
+    ) -> list[dict]:
         """
         1) Ищет все сообщения (Message), у которых is_processed=False.
         2) Одним запросом получает все группы (Group), нужные для этих сообщений.
@@ -353,7 +387,9 @@ class Preprocessing:
 
             for t in territories:
                 if not getattr(t, "osm_id", None):
-                    logger.info(f"No osm_id in DB for territory='{t.name}'. Trying osmnx...")
+                    logger.info(
+                        f"No osm_id in DB for territory='{t.name}'. Trying osmnx..."
+                    )
                     osm_id = await self.get_osm_id_by_territory_name(t.name)
                     if osm_id:
                         t.osm_id = osm_id
@@ -364,22 +400,30 @@ class Preprocessing:
             for msg in messages:
                 grp = group_map.get(msg.group_id)
                 if not grp:
-                    logger.warning(f"Message {msg.message_id} has invalid group_id={msg.group_id}. Skipping.")
+                    logger.warning(
+                        f"Message {msg.message_id} has invalid group_id={msg.group_id}. Skipping."
+                    )
                     continue
 
                 territory_name = grp.matched_territory
                 if not territory_name:
-                    logger.warning(f"Group {grp.group_id} has no matched_territory. Skipping message {msg.message_id}.")
+                    logger.warning(
+                        f"Group {grp.group_id} has no matched_territory. Skipping message {msg.message_id}."
+                    )
                     continue
 
                 terr_obj = territory_map.get(territory_name)
                 if not terr_obj:
-                    logger.warning(f"Territory '{territory_name}' not found in DB. Skipping msg={msg.message_id}.")
+                    logger.warning(
+                        f"Territory '{territory_name}' not found in DB. Skipping msg={msg.message_id}."
+                    )
                     continue
 
                 osm_id = getattr(terr_obj, "osm_id", None)
                 if not osm_id:
-                    logger.warning(f"Could not determine osm_id for territory='{territory_name}'. Skipping msg={msg.message_id}.")
+                    logger.warning(
+                        f"Could not determine osm_id for territory='{territory_name}'. Skipping msg={msg.message_id}."
+                    )
                     continue
 
                 messages_by_osm.setdefault(osm_id, []).append(msg)
@@ -387,10 +431,12 @@ class Preprocessing:
             updated_records = []
 
             for osm_key, msgs in messages_by_osm.items():
-                df = pd.DataFrame({
-                    "message_id": [m.message_id for m in msgs],
-                    "text": [m.text for m in msgs]
-                })
+                df = pd.DataFrame(
+                    {
+                        "message_id": [m.message_id for m in msgs],
+                        "text": [m.text for m in msgs],
+                    }
+                )
                 if df.empty:
                     continue
 
@@ -400,12 +446,14 @@ class Preprocessing:
                     device=device,
                     model_path="Geor111y/flair-ner-addresses-extractor",
                     text_column_name="text",
-                    city_tags={'admin_level': ['6']}
+                    city_tags={"admin_level": ["6"]},
                 )
                 result_gdf = geocoder.run(group_column=None, search_for_objects=False)
 
                 if "message_id" not in result_gdf.columns:
-                    logger.warning(f"Geocoder result has no 'message_id' column. Skipping osm_id={osm_key}.")
+                    logger.warning(
+                        f"Geocoder result has no 'message_id' column. Skipping osm_id={osm_key}."
+                    )
                     continue
 
                 records = result_gdf.to_dict("records")
@@ -416,7 +464,9 @@ class Preprocessing:
                     loc = row.get("Location")
                     geom_data = row.get("geometry")
                     if pd.isna(loc) or pd.isna(geom_data):
-                        logger.debug(f"Skipping message_id={mid} due to NaN in location/geometry.")
+                        logger.debug(
+                            f"Skipping message_id={mid} due to NaN in location/geometry."
+                        )
                         continue
 
                     msg_obj = msg_map.get(mid)
@@ -431,19 +481,19 @@ class Preprocessing:
 
                     msg_obj.is_processed = True
 
-                    updated_records.append({
-                        "message_id": mid,
-                        "osm_id": osm_key,
-                        "location": str(loc),
-                        "geometry": msg_obj.geometry
-                    })
+                    updated_records.append(
+                        {
+                            "message_id": mid,
+                            "osm_id": osm_key,
+                            "location": str(loc),
+                            "geometry": msg_obj.geometry,
+                        }
+                    )
 
             await session.commit()
 
         logger.info(f"Batch extraction done. Updated {len(updated_records)} messages.")
         return updated_records
-
-
 
     @staticmethod
     def fuzzy_search(text, phrase, threshold=80):
@@ -459,7 +509,7 @@ class Preprocessing:
         if n == 0:
             return False
         for i in range(len(words) - n + 1):
-            window = " ".join(words[i:i+n])
+            window = " ".join(words[i : i + n])
             if fuzz.ratio(phrase, window) >= threshold:
                 return True
         return False
@@ -475,10 +525,12 @@ class Preprocessing:
         """
         detected_services = []
         text_lower = text.lower()
-        service_keywords = CONSTANTS.json['service_keywords']
-        service_irrelevant_mentions = CONSTANTS.json['service_irrelevant_mentions']
-        services_priority_and_exact_keywords = CONSTANTS.json['services_priority_and_exact_keywords']
-        ru_service_names = CONSTANTS.json['ru_service_names']
+        service_keywords = CONSTANTS.json["service_keywords"]
+        service_irrelevant_mentions = CONSTANTS.json["service_irrelevant_mentions"]
+        services_priority_and_exact_keywords = CONSTANTS.json[
+            "services_priority_and_exact_keywords"
+        ]
+        ru_service_names = CONSTANTS.json["ru_service_names"]
 
         for service, keywords in service_keywords.items():
             found = False
@@ -498,17 +550,21 @@ class Preprocessing:
 
             if service in services_priority_and_exact_keywords:
                 local_config = services_priority_and_exact_keywords[service]
-                exact_found = any(self.fuzzy_search(text_lower, ex_kw, threshold=85) 
-                                  for ex_kw in local_config.get('exact_keywords', []))
+                exact_found = any(
+                    self.fuzzy_search(text_lower, ex_kw, threshold=85)
+                    for ex_kw in local_config.get("exact_keywords", [])
+                )
                 if exact_found:
                     detected_services.append(service)
                     continue
 
-                priority_over_found = any(self.fuzzy_search(text_lower, po_kw, threshold=85) 
-                                          for po_kw in local_config.get('priority_over', []))
+                priority_over_found = any(
+                    self.fuzzy_search(text_lower, po_kw, threshold=85)
+                    for po_kw in local_config.get("priority_over", [])
+                )
                 if priority_over_found:
                     continue
-                for excl in local_config.get('exclude_verbs', []):
+                for excl in local_config.get("exclude_verbs", []):
                     if self.fuzzy_search(text_lower, excl, threshold=85):
                         found = False
                         break
@@ -518,7 +574,9 @@ class Preprocessing:
             detected_services.append(service)
 
         # TODO: добавить перевод для всех названий
-        detected_services = self.replace_service_names(detected_services, ru_service_names)
+        detected_services = self.replace_service_names(
+            detected_services, ru_service_names
+        )
         return detected_services
 
     async def extract_services_in_messages(self, top: int = None) -> dict:
@@ -539,7 +597,10 @@ class Preprocessing:
             messages = result.scalars().all()
 
             if not messages:
-                return {"detail": "No unprocessed messages found.", "processed_messages": 0}
+                return {
+                    "detail": "No unprocessed messages found.",
+                    "processed_messages": 0,
+                }
 
             total_links_created = 0
 
@@ -559,15 +620,14 @@ class Preprocessing:
 
                     link_stmt = select(MessageService).where(
                         MessageService.message_id == msg.message_id,
-                        MessageService.service_id == service_obj.service_id
+                        MessageService.service_id == service_obj.service_id,
                     )
                     link_res = await session.execute(link_stmt)
                     link_exists = link_res.scalar_one_or_none()
 
                     if not link_exists:
                         link = MessageService(
-                            message_id=msg.message_id,
-                            service_id=service_obj.service_id
+                            message_id=msg.message_id, service_id=service_obj.service_id
                         )
                         session.add(link)
                         total_links_created += 1
@@ -576,7 +636,7 @@ class Preprocessing:
 
         return {
             "detail": f"Created {total_links_created} message_service records.",
-            "processed_messages": len(messages)
+            "processed_messages": len(messages),
         }
 
     async def detect_indicators(self, text):
@@ -589,9 +649,13 @@ class Preprocessing:
         """
         detected_indicators = []
         text_lower = text.lower()
-        indicators_keywords = CONSTANTS.json['indicators_keywords']
-        indicators_irrelevant_mentions = CONSTANTS.json['indicators_irrelevant_mentions']
-        indicators_priority_and_exact_keywords = CONSTANTS.json['indicators_priority_and_exact_keywords']
+        indicators_keywords = CONSTANTS.json["indicators_keywords"]
+        indicators_irrelevant_mentions = CONSTANTS.json[
+            "indicators_irrelevant_mentions"
+        ]
+        indicators_priority_and_exact_keywords = CONSTANTS.json[
+            "indicators_priority_and_exact_keywords"
+        ]
         for indicator, keywords in indicators_keywords.items():
             found = False
             for kw in keywords:
@@ -610,15 +674,21 @@ class Preprocessing:
 
             if indicator in indicators_priority_and_exact_keywords:
                 local_config = indicators_priority_and_exact_keywords[indicator]
-                exact_found = any(self.fuzzy_search(text_lower, ex_kw, threshold=85) for ex_kw in local_config.get('exact_keywords', []))
+                exact_found = any(
+                    self.fuzzy_search(text_lower, ex_kw, threshold=85)
+                    for ex_kw in local_config.get("exact_keywords", [])
+                )
                 if exact_found:
                     detected_indicators.append(indicator)
                     continue
 
-                priority_over_found = any(self.fuzzy_search(text_lower, po_kw, threshold=85) for po_kw in local_config.get('priority_over', []))
+                priority_over_found = any(
+                    self.fuzzy_search(text_lower, po_kw, threshold=85)
+                    for po_kw in local_config.get("priority_over", [])
+                )
                 if priority_over_found:
                     continue
-                for excl in local_config.get('exclude_verbs', []):
+                for excl in local_config.get("exclude_verbs", []):
                     if self.fuzzy_search(text_lower, excl, threshold=75):
                         found = False
                         break
@@ -627,6 +697,7 @@ class Preprocessing:
 
             detected_indicators.append(indicator)
         return detected_indicators
+
 
 class NER_EXTRACTOR:
     def __init__(self):
@@ -644,9 +715,9 @@ class NER_EXTRACTOR:
         dict_example = {
             "name": "Юбилейный",
             "notes": "Исторический ресторан на окраине города",
-            "location": "Дубровка, Россия"
+            "location": "Дубровка, Россия",
         }
-        prompt = f'''
+        prompt = f"""
             Найди названия в тексте {context_str}. 
             Названия должны принадлежать объектам или организациям, которые физически представлены на территории.
             Приведи названия в начальную форму. Добавь как можно больше названий на основе контекста.
@@ -656,7 +727,7 @@ class NER_EXTRACTOR:
             Словарь должен быть корректной формы.
             Пример итогового словаря: {dict_example}
             Если названий больше одного, сохрани словари элементами в списке через запятую [dict1, dict2, dict3]
-            '''
+            """
         logger.debug("Сформированный промпт: %s", prompt)
         return prompt
 
@@ -681,14 +752,21 @@ class NER_EXTRACTOR:
                     headers=headers,
                     json=data,
                     cert=(self.client_cert, self.client_key),
-                    verify=self.ca_cert
+                    verify=self.ca_cert,
                 )
                 if response.status_code == 200:
-                    logger.info("Получен успешный ответ от модели (код %s).", response.status_code)
+                    logger.info(
+                        "Получен успешный ответ от модели (код %s).",
+                        response.status_code,
+                    )
                     response_json = response.json()
                     return response_json.get("response", "")
                 else:
-                    logger.error("Ошибка запроса: %s, ответ: %s", response.status_code, response.text)
+                    logger.error(
+                        "Ошибка запроса: %s, ответ: %s",
+                        response.status_code,
+                        response.text,
+                    )
                     return None
             except requests.exceptions.RequestException as e:
                 logger.error("Ошибка соединения при запросе: %s", e)
@@ -703,7 +781,7 @@ class NER_EXTRACTOR:
         Обрабатывает список элементов items (каждый со своим 'context') асинхронно.
         """
         logger.info("Начало обработки описаний для %d элементов.", len(items))
-        tasks = [self.describe_async(item['context']) for item in items]
+        tasks = [self.describe_async(item["context"]) for item in items]
         pbar = tqdm(total=len(tasks), desc="В процессе")
 
         async def run_task(task):
@@ -720,22 +798,28 @@ class NER_EXTRACTOR:
         """
         Разбивает содержимое столбца 'extracted_data' на два столбца: 'logic' и 'response'.
         """
-        logger.info("Начало разделения столбца 'extracted_data' на 'logic' и 'response'.")
+        logger.info(
+            "Начало разделения столбца 'extracted_data' на 'logic' и 'response'."
+        )
 
         def extract_think(text):
-            match = re.search(r'<think>(.*?)</think>', text, re.DOTALL)
+            match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
             return match.group(1).strip() if match else ""
 
         def extract_response(text):
-            text_without_think = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
-            code_match = re.search(r'```(?:\w+)?\s*(.*?)\s*```', text_without_think, re.DOTALL)
+            text_without_think = re.sub(
+                r"<think>.*?</think>", "", text, flags=re.DOTALL
+            ).strip()
+            code_match = re.search(
+                r"```(?:\w+)?\s*(.*?)\s*```", text_without_think, re.DOTALL
+            )
             if code_match:
                 return code_match.group(1).strip()
             else:
                 return text_without_think
 
-        df['logic'] = df['extracted_data'].apply(extract_think)
-        df['response'] = df['extracted_data'].apply(extract_response)
+        df["logic"] = df["extracted_data"].apply(extract_think)
+        df["response"] = df["extracted_data"].apply(extract_response)
         logger.info("Разделение завершено.")
         return df
 
@@ -745,31 +829,35 @@ class NER_EXTRACTOR:
         """
         logger.debug("Начало парсинга ответа: %s", response_str)
 
-        cleaned_str = re.sub(r'\.\.\.', '', response_str or '')
+        cleaned_str = re.sub(r"\.\.\.", "", response_str or "")
         cleaned_str = cleaned_str.strip()
 
         if not cleaned_str:
             logger.warning("Пустая строка ответа после очистки.")
             return {}
 
-        if cleaned_str.startswith('(') and cleaned_str.endswith(')'):
-            cleaned_str = '[' + cleaned_str[1:-1] + ']'
-            logger.debug("Обнаружены кортежные скобки. Заменены на квадратные: %s", cleaned_str)
+        if cleaned_str.startswith("(") and cleaned_str.endswith(")"):
+            cleaned_str = "[" + cleaned_str[1:-1] + "]"
+            logger.debug(
+                "Обнаружены кортежные скобки. Заменены на квадратные: %s", cleaned_str
+            )
 
-        if cleaned_str.startswith('[') and cleaned_str.endswith(']'):
+        if cleaned_str.startswith("[") and cleaned_str.endswith("]"):
             try:
                 result = ast.literal_eval(cleaned_str)
                 if isinstance(result, list):
                     logger.debug("Извлечен список словарей через ast.literal_eval.")
                     return result
                 else:
-                    logger.warning("Ожидался список словарей, но получен другой тип данных.")
+                    logger.warning(
+                        "Ожидался список словарей, но получен другой тип данных."
+                    )
                     return {}
             except Exception as e:
                 logger.error("Ошибка при разборе списка словарей: %s", e)
                 return {}
 
-        match = re.search(r'(\{.*\})', cleaned_str, re.DOTALL)
+        match = re.search(r"(\{.*\})", cleaned_str, re.DOTALL)
         if match:
             dict_str = match.group(1)
             try:
@@ -787,7 +875,7 @@ class NER_EXTRACTOR:
             logger.warning("Словарь не найден в строке ответа.")
             return {}
 
-        match = re.search(r'(\{.*\})', cleaned_str, re.DOTALL)
+        match = re.search(r"(\{.*\})", cleaned_str, re.DOTALL)
         if match:
             dict_str = match.group(1)
             try:
@@ -829,6 +917,7 @@ class NER_EXTRACTOR:
         """
         Заменяет значения np.nan или списки, содержащие только np.nan, на None.
         """
+
         def replace_value(x):
             if isinstance(x, list):
                 if x and all(pd.isna(item) for item in x):
@@ -846,20 +935,20 @@ class NER_EXTRACTOR:
         Объединяет теги OSM в список строк вида "класс:тип".
         Если встречается вложенный список, его элементы объединяются через запятую.
         """
-        if row['osm_class'] is None or row['osm_type'] is None:
+        if row["osm_class"] is None or row["osm_type"] is None:
             return None
 
         def process_element(elem):
             if isinstance(elem, list):
                 return ",".join(map(str, elem))
             return str(elem)
-        
-        processed_class = process_element(row['osm_class'])
-        processed_type = process_element(row['osm_type'])
-        
+
+        processed_class = process_element(row["osm_class"])
+        processed_type = process_element(row["osm_type"])
+
         classes = processed_class.split(",")
         types = processed_type.split(",")
-        
+
         return [f"{cls}:{typ}" for cls, typ in zip(classes, types)]
 
     def unique_list(self, x):
@@ -872,70 +961,143 @@ class NER_EXTRACTOR:
          - разделение и парсинг извлечённых данных,
          - геокодирование и агрегирование.
         """
-        items = [{'context': row['text']} for _, row in texts.iterrows()]
+        items = [{"context": row["text"]} for _, row in texts.iterrows()]
         descriptions = await self.process_write_descriptions(items)
-        texts['extracted_data'] = descriptions
+        texts["extracted_data"] = descriptions
         texts = self.split_extracted_data(texts)
-        texts['response'] = texts['response'].apply(self.parse_response)
-        texts['response'] = texts['response'].map(self.fix_response)
-        texts = texts[texts['response'].map(lambda x: len(x)) > 0]
+        texts["response"] = texts["response"].apply(self.parse_response)
+        texts["response"] = texts["response"].map(self.fix_response)
+        texts = texts[texts["response"].map(lambda x: len(x)) > 0]
 
-        named_objects = texts.explode('response')
-        named_objects = named_objects[['message_id', 'text', 'Location', 'geometry', 'logic', 'response']]
-        named_objects['object_name'] = named_objects['response'].map(lambda x: x.get("name", None))
-        named_objects['object_location'] = named_objects['response'].map(lambda x: x.get("location", None))
-        named_objects['object_description'] = named_objects['response'].map(lambda x: x.get("notes", None))
-        named_objects.rename(columns={'geometry': 'street_geometry'}, inplace=True)
-        named_objects['query'] = named_objects['object_name'] + ', ' + named_objects['object_location']
-        
-        named_objects['query_result'] = named_objects['query'].progress_map(lambda x: self.safe_geocode_with_tags(x))
-        #TODO: починить обращения в OSM. Сейчас либо не находит нужных объектов, либо возникают проблемы с мультиполигонами (?)
-        if len(named_objects['query_result']) == 0:
-            logger.info('Data from OSM collected')
+        named_objects = texts.explode("response")
+        named_objects = named_objects[
+            ["message_id", "text", "Location", "geometry", "logic", "response"]
+        ]
+        named_objects["object_name"] = named_objects["response"].map(
+            lambda x: x.get("name", None)
+        )
+        named_objects["object_location"] = named_objects["response"].map(
+            lambda x: x.get("location", None)
+        )
+        named_objects["object_description"] = named_objects["response"].map(
+            lambda x: x.get("notes", None)
+        )
+        named_objects.rename(columns={"geometry": "street_geometry"}, inplace=True)
+        named_objects["query"] = (
+            named_objects["object_name"] + ", " + named_objects["object_location"]
+        )
+
+        named_objects["query_result"] = named_objects["query"].progress_map(
+            lambda x: self.safe_geocode_with_tags(x)
+        )
+        # TODO: починить обращения в OSM. Сейчас либо не находит нужных объектов, либо возникают проблемы с мультиполигонами (?)
+        if len(named_objects["query_result"]) == 0:
+            logger.info("Data from OSM collected")
             parsed_df = pd.json_normalize(named_objects.query_result)
             logger.info(f"{parsed_df}")
-            parsed_df = parsed_df.drop(columns=['bbox_north', 'bbox_south', 'bbox_east', 'bbox_west', 'lat', 'lon'], errors='ignore')
+            parsed_df = parsed_df.drop(
+                columns=[
+                    "bbox_north",
+                    "bbox_south",
+                    "bbox_east",
+                    "bbox_west",
+                    "lat",
+                    "lon",
+                ],
+                errors="ignore",
+            )
 
-            parsed_df['geometry'] = parsed_df['geometry'].to_crs(3857).centroid.to_crs(4326)
+            parsed_df["geometry"] = (
+                parsed_df["geometry"].to_crs(3857).centroid.to_crs(4326)
+            )
 
-            named_objects = pd.concat([named_objects.reset_index(drop=True), parsed_df], axis=1)
-            named_objects['geometry'] = named_objects['geometry'].fillna(gpd.GeoSeries.from_wkt(named_objects['street_geometry']))
+            named_objects = pd.concat(
+                [named_objects.reset_index(drop=True), parsed_df], axis=1
+            )
+            named_objects["geometry"] = named_objects["geometry"].fillna(
+                gpd.GeoSeries.from_wkt(named_objects["street_geometry"])
+            )
         else:
-            logger.info('No OSM data found')
-            named_objects['geometry'] = named_objects['street_geometry']
-            named_objects['class'] = None
-            named_objects['type'] = None
-            named_objects['type'] = None
-            named_objects['osm_id'] = None
-            named_objects['display_name'] = None
+            logger.info("No OSM data found")
+            named_objects["geometry"] = named_objects["street_geometry"]
+            named_objects["class"] = None
+            named_objects["type"] = None
+            named_objects["type"] = None
+            named_objects["osm_id"] = None
+            named_objects["display_name"] = None
 
-        named_objects.drop(columns=['response', 'object_location', 'index', 'logic', 'query', 'place_id', 'query_result', 
-                                    'street_geometry', 'osm_type', 'importance', 'place_rank', 'addresstype', 'name'], 
-                             inplace=True, errors='ignore')
-        named_objects.rename(columns={'Location': 'street_location', 'class': 'osm_class', 'type': 'osm_type', 
-                                      'display_name': 'osm_name', 'count': 'message_count'}, inplace=True)
+        named_objects.drop(
+            columns=[
+                "response",
+                "object_location",
+                "index",
+                "logic",
+                "query",
+                "place_id",
+                "query_result",
+                "street_geometry",
+                "osm_type",
+                "importance",
+                "place_rank",
+                "addresstype",
+                "name",
+            ],
+            inplace=True,
+            errors="ignore",
+        )
+        named_objects.rename(
+            columns={
+                "Location": "street_location",
+                "class": "osm_class",
+                "type": "osm_type",
+                "display_name": "osm_name",
+                "count": "message_count",
+            },
+            inplace=True,
+        )
 
-        named_objects = gpd.GeoDataFrame(named_objects, geometry='geometry').set_crs(4326)
-        named_objects = named_objects[~named_objects['osm_type'].isin(['administrative', 'city', 'government', 'town', 
-                                                                    'townhall', 'courthouse', 'quarter'])]
+        named_objects = gpd.GeoDataFrame(named_objects, geometry="geometry").set_crs(
+            4326
+        )
+        named_objects = named_objects[
+            ~named_objects["osm_type"].isin(
+                [
+                    "administrative",
+                    "city",
+                    "government",
+                    "town",
+                    "townhall",
+                    "courthouse",
+                    "quarter",
+                ]
+            )
+        ]
 
-        logger.info(f'Named objects processed')
+        logger.info(f"Named objects processed")
 
-        grouped_df = named_objects.groupby(['geometry', 'object_name']).agg(self.unique_list)
-        group_counts = named_objects.groupby(['geometry', 'object_name']).size().rename('count')
+        grouped_df = named_objects.groupby(["geometry", "object_name"]).agg(
+            self.unique_list
+        )
+        group_counts = (
+            named_objects.groupby(["geometry", "object_name"]).size().rename("count")
+        )
         grouped_df = grouped_df.join(group_counts)
         logger.info(f"{grouped_df}")
-        grouped_df = gpd.GeoDataFrame(grouped_df, geometry='geometry').set_crs(4326)
-        logger.info(f'Named objects grouped')
+        grouped_df = gpd.GeoDataFrame(grouped_df, geometry="geometry").set_crs(4326)
+        logger.info(f"Named objects grouped")
 
-        grouped_df['osm_id'] = self.replace_nan_in_column(grouped_df['osm_id'])
-        grouped_df['osm_class'] = self.replace_nan_in_column(grouped_df['osm_class'])
-        grouped_df['osm_type'] = self.replace_nan_in_column(grouped_df['osm_type'])
-        grouped_df['osm_name'] = self.replace_nan_in_column(grouped_df['osm_name'])
+        grouped_df["osm_id"] = self.replace_nan_in_column(grouped_df["osm_id"])
+        grouped_df["osm_class"] = self.replace_nan_in_column(grouped_df["osm_class"])
+        grouped_df["osm_type"] = self.replace_nan_in_column(grouped_df["osm_type"])
+        grouped_df["osm_name"] = self.replace_nan_in_column(grouped_df["osm_name"])
 
-        grouped_df['osm_tag'] = grouped_df.apply(self.combine_tags, axis=1)
-        grouped_df.drop(columns=['osm_class', 'osm_type'], inplace=True, errors='ignore')
-        grouped_df = grouped_df[~grouped_df.object_name.isin(['Александр Дрозденко', 'Игорь Самохин'])]
+        grouped_df["osm_tag"] = grouped_df.apply(self.combine_tags, axis=1)
+        grouped_df.drop(
+            columns=["osm_class", "osm_type"], inplace=True, errors="ignore"
+        )
+        grouped_df = grouped_df[
+            ~grouped_df.object_name.isin(["Александр Дрозденко", "Игорь Самохин"])
+        ]
         logger.info(f"{grouped_df}")
 
         return grouped_df
@@ -957,21 +1119,26 @@ class NER_EXTRACTOR:
             messages = result.scalars().all()
 
             if not messages:
-                return {"detail": "No unprocessed messages found.", "processed_messages": 0}
+                return {
+                    "detail": "No unprocessed messages found.",
+                    "processed_messages": 0,
+                }
             data = []
             for msg in messages:
-                data.append({
-                    "message_id": msg.message_id,
-                    "text": msg.text,
-                    "Location": msg.location,
-                    "geometry": wkt.dumps(msg.geometry) if msg.geometry else None
-                })
+                data.append(
+                    {
+                        "message_id": msg.message_id,
+                        "text": msg.text,
+                        "Location": msg.location,
+                        "geometry": wkt.dumps(msg.geometry) if msg.geometry else None,
+                    }
+                )
             df = pd.DataFrame(data)
             result_gdf = await self.process_texts(df)
             if result_gdf.empty:
                 return {
                     "detail": "NER extraction returned no named objects.",
-                    "processed_messages": len(messages)
+                    "processed_messages": len(messages),
                 }
             named_objects_created = 0
             for _, row in result_gdf.iterrows():
@@ -990,7 +1157,7 @@ class NER_EXTRACTOR:
                     accurate_location=row.get("osm_name"),
                     estimated_location=msg.location,
                     geometry=row.get("geometry"),
-                    is_processed=False
+                    is_processed=False,
                 )
                 session.add(named_obj)
                 named_objects_created += 1
@@ -999,7 +1166,7 @@ class NER_EXTRACTOR:
 
         return {
             "detail": f"Created {named_objects_created} named_object records.",
-            "processed_messages": len(messages)
+            "processed_messages": len(messages),
         }
 
 
@@ -1016,14 +1183,14 @@ class IndicatorDefinition:
         """
         logger.debug("Начало формирования промпта. Исходный context: %s", context)
         context_str = "\n".join(context) if isinstance(context, list) else str(context)
-        prompt = f'''
+        prompt = f"""
             Найди обсуждение показателей в тексте {context_str}. 
             Строительство - обращение упоминает строительство новых объектов, реновацию или реконструкцию, открытие объектов, постройку.
             Снос - обращение упоминает уничтожение объектов, их разрушение, повреждение. Любая утрата объекта или его части умышленным образом. 
             Обеспеченность - обращение упоминает то, насколько сервис(объект) загружен жителями. Признаки чрезмерной загруженности - очереди, нехватка мест, нехватка персонала.
             Доступность - обращение упоминает сложности с достижением объекта или сервиса в разумное время. Слишком долго или сложно добираться, слишком большое расстояние до ближайшего объекта. 
             В ответе должен быть список из упомянутых показателей в формате [ind1, ind2, ind3]. Если показатели не обсуждаются, пиши []. Не пиши ничего, кроме списка. Нужен ответ правильного формата.
-            '''
+            """
         logger.debug("Сформированный промпт: %s", prompt)
         return prompt
 
@@ -1039,7 +1206,7 @@ class IndicatorDefinition:
             "prompt": prompt,
             "stream": False,
         }
-        
+
         def sync_request():
             try:
                 response = requests.post(
@@ -1047,13 +1214,17 @@ class IndicatorDefinition:
                     headers=headers,
                     json=data,
                     cert=(self.client_cert, self.client_key),
-                    verify=self.ca_cert
+                    verify=self.ca_cert,
                 )
                 if response.status_code == 200:
                     response_json = response.json()
                     return response_json.get("response", "")
                 else:
-                    logger.error("Ошибка запроса: %s, ответ: %s", response.status_code, response.text)
+                    logger.error(
+                        "Ошибка запроса: %s, ответ: %s",
+                        response.status_code,
+                        response.text,
+                    )
                     return None
             except requests.exceptions.RequestException as e:
                 logger.error("Ошибка соединения при запросе: %s", e)
@@ -1067,9 +1238,9 @@ class IndicatorDefinition:
         """
         Обрабатывает список словарей с ключом 'context' и возвращает список результатов.
         """
-        tasks = [self.describe_async(item['context']) for item in items]
+        tasks = [self.describe_async(item["context"]) for item in items]
         pbar = tqdm(total=len(tasks), desc="В процессе")
-        
+
         async def run_task(task):
             result = await task
             pbar.update(1)
@@ -1085,23 +1256,23 @@ class IndicatorDefinition:
         Парсит строку ответа в список показателей.
         """
         s = s.strip()
-        if s.startswith('[') and s.endswith(']'):
+        if s.startswith("[") and s.endswith("]"):
             inner = s[1:-1].strip()
         else:
             inner = s
         if not inner:
             return []
-        return [word.strip().capitalize() for word in inner.split(',') if word.strip()]
+        return [word.strip().capitalize() for word in inner.split(",") if word.strip()]
 
     async def get_indicators(self, df):
         """
         Принимает DataFrame с колонкой 'text', обрабатывает запросы и возвращает Series с результатами.
         """
-        items = [{'context': row['text']} for _, row in df.iterrows()]
+        items = [{"context": row["text"]} for _, row in df.iterrows()]
         indicators = await self.process_find_indicators(items)
-        df['indicators'] = indicators
-        df['indicators'] = df['indicators'].map(self.parse_indicator_response)
-        return df['indicators'].tolist()
+        df["indicators"] = indicators
+        df["indicators"] = df["indicators"].map(self.parse_indicator_response)
+        return df["indicators"].tolist()
 
     async def extract_indicators(self, top: int = None) -> dict:
         """
@@ -1120,13 +1291,13 @@ class IndicatorDefinition:
             messages = result.scalars().all()
 
             if not messages:
-                return {"detail": "No unprocessed messages found.", "processed_messages": 0}
+                return {
+                    "detail": "No unprocessed messages found.",
+                    "processed_messages": 0,
+                }
             data = []
             for msg in messages:
-                data.append({
-                    "message_id": msg.message_id,
-                    "text": msg.text
-                })
+                data.append({"message_id": msg.message_id, "text": msg.text})
             df = pd.DataFrame(data)
 
             indicators_list = await self.get_indicators(df)
@@ -1134,7 +1305,7 @@ class IndicatorDefinition:
 
             for i, row in df.iterrows():
                 mid = row["message_id"]
-                found_inds = indicators_list[i] 
+                found_inds = indicators_list[i]
                 if not found_inds:
                     continue
 
@@ -1150,15 +1321,14 @@ class IndicatorDefinition:
 
                     link_stmt = select(MessageIndicator).where(
                         MessageIndicator.message_id == mid,
-                        MessageIndicator.indicator_id == indicator_obj.indicator_id
+                        MessageIndicator.indicator_id == indicator_obj.indicator_id,
                     )
                     link_res = await session.execute(link_stmt)
                     link_exists = link_res.scalar_one_or_none()
 
                     if not link_exists:
                         link = MessageIndicator(
-                            message_id=mid,
-                            indicator_id=indicator_obj.indicator_id
+                            message_id=mid, indicator_id=indicator_obj.indicator_id
                         )
                         session.add(link)
                         total_links_created += 1
@@ -1167,7 +1337,7 @@ class IndicatorDefinition:
 
         return {
             "detail": f"Created {total_links_created} message_indicator records.",
-            "processed_messages": len(messages)
+            "processed_messages": len(messages),
         }
 
 

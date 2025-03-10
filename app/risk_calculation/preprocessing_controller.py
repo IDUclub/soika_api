@@ -1,16 +1,30 @@
 from fastapi import APIRouter, HTTPException
 from fastapi import Query
 from loguru import logger
-import pandas as pd #костыль
+import pandas as pd  # костыль
 from sqlalchemy import select, delete
 from geoalchemy2.shape import to_shape
-from app.risk_calculation.logic.preprocessing_methods import preprocessing, ner_extraction, indicators_definition
+from app.risk_calculation.logic.preprocessing_methods import (
+    preprocessing,
+    ner_extraction,
+    indicators_definition,
+)
 from app.risk_calculation.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
 from app.risk_calculation.dto.territory_dto import TerritoryCreate
 from app.risk_calculation.dto.emotion_dto import EmotionCreate
 from app.risk_calculation.dto.indicator_dto import IndicatorCreate
 from app.common.db.database import database
-from app.common.db.database import Territory, Group, Message, NamedObject, Emotion, Indicator, MessageIndicator, Service, MessageService
+from app.common.db.database import (
+    Territory,
+    Group,
+    Message,
+    NamedObject,
+    Emotion,
+    Indicator,
+    MessageIndicator,
+    Service,
+    MessageService,
+)
 
 
 territories_router = APIRouter()
@@ -19,7 +33,9 @@ messages_router = APIRouter()
 named_objects_router = APIRouter()
 indicators_router = APIRouter()
 services_router = APIRouter()
-#TODO: убрать логику из роутеров обработки в методы, аналогично индикаторам или NER
+
+
+# TODO: убрать логику из роутеров обработки в методы, аналогично индикаторам или NER
 @territories_router.get("/get_territories")
 async def get_territories():
     """
@@ -28,15 +44,18 @@ async def get_territories():
     async with database.session() as session:
         result = await session.execute(select(Territory))
         territories = result.scalars().all()
-    
+
     territories_list = []
     for t in territories:
-        territories_list.append({
-            "territory_id": t.territory_id,
-            "name": t.name,
-            "matched_territory": t.matched_territory
-        })
+        territories_list.append(
+            {
+                "territory_id": t.territory_id,
+                "name": t.name,
+                "matched_territory": t.matched_territory,
+            }
+        )
     return {"territories": territories_list}
+
 
 @territories_router.post("/add_territory")
 async def create_territory(payload: TerritoryCreate):
@@ -50,10 +69,11 @@ async def create_territory(payload: TerritoryCreate):
         return {
             "territory_id": new_territory.territory_id,
             "name": new_territory.name,
-            "matched_territory": new_territory.matched_territory
+            "matched_territory": new_territory.matched_territory,
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
 
 @territories_router.delete("/territories")
 async def delete_all_territories():
@@ -65,6 +85,7 @@ async def delete_all_territories():
         await session.commit()
     return {"detail": "All territories deleted"}
 
+
 @groups_router.get("/get_groups")
 async def get_groups():
     """
@@ -73,22 +94,28 @@ async def get_groups():
     async with database.session() as session:
         result = await session.execute(select(Group))
         groups = result.scalars().all()
-    
+
     groups_list = []
     for g in groups:
-        groups_list.append({
-            "group_id": g.group_id,
-            "name": g.name,
-            "group_domain": g.group_domain,
-            "matched_territory": g.matched_territory
-        })
+        groups_list.append(
+            {
+                "group_id": g.group_id,
+                "name": g.name,
+                "group_domain": g.group_domain,
+                "matched_territory": g.matched_territory,
+            }
+        )
     return {"groups": groups_list}
+
 
 @groups_router.post("/collect_vk_groups")
 async def collect_vk_groups(data: VKGroupsRequest):
     result = await preprocessing.search_vk_groups(data.territory_id)
     logger.info(f"VK groups for {data.territory_id} collected and saved to database")
-    return {"status": f"VK groups for id {data.territory_id} {result} collected and saved to database"}
+    return {
+        "status": f"VK groups for id {data.territory_id} {result} collected and saved to database"
+    }
+
 
 @groups_router.delete("/groups")
 async def delete_all_groups():
@@ -100,8 +127,13 @@ async def delete_all_groups():
         await session.commit()
     return {"detail": "All groups deleted"}
 
+
 @messages_router.get("/get_messages")
-async def get_messages(only_with_location: bool = Query(False, description="Возвращать только записи с непустыми geometry и location")):
+async def get_messages(
+    only_with_location: bool = Query(
+        False, description="Возвращать только записи с непустыми geometry и location"
+    )
+):
     """
     Возвращает список всех записей из таблицы message.
     Поле geometry приводим к строке (WKT), чтобы сериализовать в JSON.
@@ -113,45 +145,49 @@ async def get_messages(only_with_location: bool = Query(False, description="Во
     async with database.session() as session:
         result = await session.execute(select(Message))
         messages = result.scalars().all()
-    
+
     if only_with_location:
         messages = [
-            m for m in messages
-            if m.geometry is not None and m.location is not None
+            m for m in messages if m.geometry is not None and m.location is not None
         ]
-    
+
     messages_list = []
     for m in messages:
         if m.geometry:
-            shapely_geom = to_shape(m.geometry)  
+            shapely_geom = to_shape(m.geometry)
             wkt_str = shapely_geom.wkt
         else:
             wkt_str = None
 
-        messages_list.append({
-            "message_id": m.message_id,
-            "text": m.text,
-            "date": m.date.isoformat() if m.date else None,
-            "views": m.views,
-            "likes": m.likes,
-            "reposts": m.reposts,
-            "type": m.type,
-            "parent_message_id": m.parent_message_id,
-            "group_id": m.group_id,
-            "emotion_id": m.emotion_id,
-            "score": m.score,
-            "geometry": wkt_str,
-            "location": m.location,
-            "is_processed": m.is_processed
-        })
+        messages_list.append(
+            {
+                "message_id": m.message_id,
+                "text": m.text,
+                "date": m.date.isoformat() if m.date else None,
+                "views": m.views,
+                "likes": m.likes,
+                "reposts": m.reposts,
+                "type": m.type,
+                "parent_message_id": m.parent_message_id,
+                "group_id": m.group_id,
+                "emotion_id": m.emotion_id,
+                "score": m.score,
+                "geometry": wkt_str,
+                "location": m.location,
+                "is_processed": m.is_processed,
+            }
+        )
 
     return {"messages": messages_list}
+
 
 @messages_router.post("/collect_vk_texts")
 async def collect_vk_texts(data: VKTextsRequest):
     result = await preprocessing.parse_VK_texts(data.territory_id, data.to_date)
     logger.info(f"VK texts for {data.territory_id} collected and saved to DB")
-    return {"status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."}
+    return {
+        "status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."
+    }
 
 
 @messages_router.post("/add_emotions")
@@ -164,10 +200,7 @@ async def create_emotion(payload: EmotionCreate):
     Возвращает созданную запись.
     """
     async with database.session() as session:
-        new_emotion = Emotion(
-            name=payload.name,
-            emotion_weight=payload.emotion_weight
-        )
+        new_emotion = Emotion(name=payload.name, emotion_weight=payload.emotion_weight)
         session.add(new_emotion)
         await session.commit()
         await session.refresh(new_emotion)
@@ -175,9 +208,10 @@ async def create_emotion(payload: EmotionCreate):
     return {
         "emotion_id": new_emotion.emotion_id,
         "name": new_emotion.name,
-        "emotion_weight": new_emotion.emotion_weight
+        "emotion_weight": new_emotion.emotion_weight,
     }
-    
+
+
 @messages_router.post("/determine_emotion")
 async def determine_emotion_for_unprocessed_messages():
     """
@@ -199,7 +233,9 @@ async def determine_emotion_for_unprocessed_messages():
             return {"detail": "No unprocessed messages found."}
 
         total_messages = len(messages)
-        logger.info(f"Found {total_messages} unprocessed messages. Starting emotion classification...")
+        logger.info(
+            f"Found {total_messages} unprocessed messages. Starting emotion classification..."
+        )
 
         count_updated = 0
 
@@ -212,13 +248,16 @@ async def determine_emotion_for_unprocessed_messages():
 
             if emotion_obj:
                 msg.emotion_id = emotion_obj.emotion_id
-                #msg.is_processed = True
+                # msg.is_processed = True
                 count_updated += 1
 
         await session.commit()
 
-    logger.info(f"Emotion classification done. Updated {count_updated} messages out of {total_messages}.")
+    logger.info(
+        f"Emotion classification done. Updated {count_updated} messages out of {total_messages}."
+    )
     return {"detail": f"Processed {count_updated} messages out of {total_messages}."}
+
 
 @messages_router.post("/extract_addresses")
 async def extract_addresses_for_unprocessed_messages(device: str = "cpu"):
@@ -230,11 +269,16 @@ async def extract_addresses_for_unprocessed_messages(device: str = "cpu"):
     3) Обновляем поля location, geometry, is_processed в таблице messages.
     Возвращает статистику о количестве обновлённых записей.
     """
-    updated_records = await preprocessing.extract_addresses_for_unprocessed(device=device)
-    logger.info(f"Extraction of addresses completed. Updated {len(updated_records)} messages.")
+    updated_records = await preprocessing.extract_addresses_for_unprocessed(
+        device=device
+    )
+    logger.info(
+        f"Extraction of addresses completed. Updated {len(updated_records)} messages."
+    )
     return {
         "status": f"Extraction of addresses completed. Updated {len(updated_records)} messages."
     }
+
 
 @messages_router.delete("/messages")
 async def delete_all_messages():
@@ -256,26 +300,31 @@ async def get_named_objects():
     async with database.session() as session:
         result = await session.execute(select(NamedObject))
         named_objs = result.scalars().all()
-    
+
     named_objects_list = []
     for no in named_objs:
-        named_objects_list.append({
-            "named_object_id": no.named_object_id,
-            "estimated_location": no.estimated_location,
-            "object_description": no.object_description,
-            "osm_id": no.osm_id,
-            "accurate_location": no.accurate_location,
-            "count": no.count,
-            "text_id": no.text_id,
-            "osm_tag": no.osm_tag,
-            "geometry": no.geometry.wkt if no.geometry else None,
-            "is_processed": no.is_processed
-        })
+        named_objects_list.append(
+            {
+                "named_object_id": no.named_object_id,
+                "estimated_location": no.estimated_location,
+                "object_description": no.object_description,
+                "osm_id": no.osm_id,
+                "accurate_location": no.accurate_location,
+                "count": no.count,
+                "text_id": no.text_id,
+                "osm_tag": no.osm_tag,
+                "geometry": no.geometry.wkt if no.geometry else None,
+                "is_processed": no.is_processed,
+            }
+        )
     return {"named_objects": named_objects_list}
+
 
 @named_objects_router.post("/extract_named_objects")
 async def extract_named_objects_route(
-    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
+    top: int = Query(
+        None, description="Сколько сообщений обрабатывать за один вызов (None = все)"
+    )
 ):
     """
     POST-метод: вызывает функцию extract_named_objects из NER_EXTRACTOR.
@@ -292,14 +341,17 @@ async def get_indicators():
     async with database.session() as session:
         result = await session.execute(select(Indicator))
         indicators = result.scalars().all()
-    
+
     indicators_list = []
     for i in indicators:
-        indicators_list.append({
-            "indicator_id": i.indicator_id,
-            "name": i.name,
-        })
+        indicators_list.append(
+            {
+                "indicator_id": i.indicator_id,
+                "name": i.name,
+            }
+        )
     return {"indicators": indicators_list}
+
 
 @indicators_router.get("/get_message_indicator_pairs")
 async def get_message_indicator_pairs():
@@ -309,14 +361,14 @@ async def get_message_indicator_pairs():
     async with database.session() as session:
         result = await session.execute(select(MessageIndicator))
         indicators = result.scalars().all()
-    
+
     indicators_list = []
     for i in indicators:
-        indicators_list.append({
-            "message_id": i.message_id,
-            "indicator_id": i.indicator_id
-        })
+        indicators_list.append(
+            {"message_id": i.message_id, "indicator_id": i.indicator_id}
+        )
     return {"message_indicator_pairs": indicators_list}
+
 
 @indicators_router.post("/add_indicators")
 async def create_indicator(payload: IndicatorCreate):
@@ -334,14 +386,14 @@ async def create_indicator(payload: IndicatorCreate):
         await session.commit()
         await session.refresh(new_indicator)
 
-    return {
-        "indicator_id": new_indicator.indicator_id,
-        "name": new_indicator.name
-    }
+    return {"indicator_id": new_indicator.indicator_id, "name": new_indicator.name}
+
 
 @indicators_router.post("/extract_indicators")
 async def extract_indicators_route(
-    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
+    top: int = Query(
+        None, description="Сколько сообщений обрабатывать за один вызов (None = все)"
+    )
 ):
     """
     POST-метод: проходит по всем is_processed=False сообщениям, находит индикаторы
@@ -349,6 +401,7 @@ async def extract_indicators_route(
     """
     result = await indicators_definition.extract_indicators(top=top)
     return result
+
 
 @indicators_router.delete("/indicators")
 async def delete_all_indicators():
@@ -360,6 +413,7 @@ async def delete_all_indicators():
         await session.commit()
     return {"detail": "All indicators deleted"}
 
+
 @services_router.get("/get_services")
 async def get_services():
     """
@@ -368,15 +422,14 @@ async def get_services():
     async with database.session() as session:
         result = await session.execute(select(Service))
         services = result.scalars().all()
-    
+
     services_list = []
     for s in services:
-        services_list.append({
-            "service_id": s.service_id,
-            "name": s.name,
-            "value_id": s.value_id
-        })
+        services_list.append(
+            {"service_id": s.service_id, "name": s.name, "value_id": s.value_id}
+        )
     return {"services": services_list}
+
 
 @services_router.get("/get_message_service_pairs")
 async def get_message_service_pairs():
@@ -386,21 +439,21 @@ async def get_message_service_pairs():
     async with database.session() as session:
         result = await session.execute(select(MessageService))
         services = result.scalars().all()
-    
+
     services_list = []
     for s in services:
-        services_list.append({
-            "message_id": s.message_id,
-            "indicator_id": s.service_id
-        })
+        services_list.append({"message_id": s.message_id, "indicator_id": s.service_id})
     return {"message_service_pairs": services_list}
+
 
 @services_router.post("/extract_services")
 async def extract_services_route(
-    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
+    top: int = Query(
+        None, description="Сколько сообщений обрабатывать за один вызов (None = все)"
+    )
 ):
     """
-    POST-метод: проходит по всем is_processed=False сообщениям, 
+    POST-метод: проходит по всем is_processed=False сообщениям,
     выявляет сервисы, складывает в message_service.
     """
     result = await preprocessing.extract_services_in_messages(top=top)

@@ -28,8 +28,22 @@ cities = Table(
     obj_metadata,
     Column("id", Integer, primary_key=True),
     Column("name", String, nullable=False),
-    Column("geometry", Geometry(srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
-    Column("center", Geometry("POINT", srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="center")),
+    Column(
+        "geometry",
+        Geometry(
+            srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry"
+        ),
+    ),
+    Column(
+        "center",
+        Geometry(
+            "POINT",
+            srid=4326,
+            spatial_index=False,
+            from_text="ST_GeomFromEWKT",
+            name="center",
+        ),
+    ),
     Column("population", Integer),
     Column("created_at", DateTime),
     Column("updated_at", DateTime),
@@ -52,8 +66,22 @@ administrative_units = Table(
     Column("city_id", Integer, ForeignKey("cities.id")),
     Column("type_id", Integer, ForeignKey("administrative_unit_types.id")),
     Column("name", String),
-    Column("geometry", Geometry(srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
-    Column("center", Geometry("POINT", srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="center")),
+    Column(
+        "geometry",
+        Geometry(
+            srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry"
+        ),
+    ),
+    Column(
+        "center",
+        Geometry(
+            "POINT",
+            srid=4326,
+            spatial_index=False,
+            from_text="ST_GeomFromEWKT",
+            name="center",
+        ),
+    ),
     Column("population", Integer),
     Column("created_at", DateTime),
     Column("updated_at", DateTime),
@@ -69,12 +97,26 @@ municipalities = Table(
     Column("city_id", Integer, ForeignKey("cities.id")),
     Column("type_id", Integer, ForeignKey("municipality_types.id")),
     Column("name", String),
-    Column("geometry", Geometry(srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
-    Column("center", Geometry("POINT", srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="center")),
+    Column(
+        "geometry",
+        Geometry(
+            srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry"
+        ),
+    ),
+    Column(
+        "center",
+        Geometry(
+            "POINT",
+            srid=4326,
+            spatial_index=False,
+            from_text="ST_GeomFromEWKT",
+            name="center",
+        ),
+    ),
     Column("population", Integer),
     Column("created_at", DateTime),
     Column("updated_at", DateTime),
-    Column("admin_unit_parent_id", Integer)
+    Column("admin_unit_parent_id", Integer),
 )
 
 blocks = Table(
@@ -82,14 +124,28 @@ blocks = Table(
     obj_metadata,
     Column("id", Integer, primary_key=True),
     Column("city_id", Integer, ForeignKey("cities.id")),
-    Column("geometry", Geometry(srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
-    Column("center", Geometry("POINT", srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="center")),
+    Column(
+        "geometry",
+        Geometry(
+            srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry"
+        ),
+    ),
+    Column(
+        "center",
+        Geometry(
+            "POINT",
+            srid=4326,
+            spatial_index=False,
+            from_text="ST_GeomFromEWKT",
+            name="center",
+        ),
+    ),
     Column("population", Integer),
     Column("created_at", DateTime),
     Column("updated_at", DateTime),
     Column("municipality_id", Integer, ForeignKey("municipalities.id")),
     Column("administrative_unit_id", Integer, ForeignKey("administrative_units.id")),
-    Column("area", Float)
+    Column("area", Float),
 )
 
 t_all_services = Table(
@@ -98,8 +154,22 @@ t_all_services = Table(
     Column("functional_object_id", Integer),
     Column("physical_object_id", Integer),
     Column("building_id", Integer),
-    Column("geometry", Geometry(srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
-    Column("center", Geometry("POINT", 4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
+    Column(
+        "geometry",
+        Geometry(
+            srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry"
+        ),
+    ),
+    Column(
+        "center",
+        Geometry(
+            "POINT",
+            4326,
+            spatial_index=False,
+            from_text="ST_GeomFromEWKT",
+            name="geometry",
+        ),
+    ),
     Column("city_service_type", String(50)),
     Column("city_service_type_id", Integer),
     Column("city_service_type_code", String(50)),
@@ -164,8 +234,22 @@ t_all_buildings = Table(
     Column("modeled", JSONB(astext_type=Text())),
     Column("functional_object_id", Integer),
     Column("osm_id", String(50)),
-    Column("geometry", Geometry(srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
-    Column("center", Geometry("POINT", 4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry")),
+    Column(
+        "geometry",
+        Geometry(
+            srid=4326, spatial_index=False, from_text="ST_GeomFromEWKT", name="geometry"
+        ),
+    ),
+    Column(
+        "center",
+        Geometry(
+            "POINT",
+            4326,
+            spatial_index=False,
+            from_text="ST_GeomFromEWKT",
+            name="geometry",
+        ),
+    ),
     Column("city", String(50)),
     Column("city_id", Integer),
     Column("city_code", String(50)),

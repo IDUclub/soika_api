@@ -2,8 +2,10 @@ from datetime import datetime
 from fastapi import HTTPException, APIRouter
 from pydantic import BaseModel, validator
 
+
 class VKGroupsRequest(BaseModel):
     territory_id: int
+
 
 class VKTextsRequest(BaseModel):
     territory_id: int
