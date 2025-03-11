@@ -1,3 +1,13 @@
+import sys
+import os
+
+# Абсолютный путь к локальной папке "sloyka"
+local_sloyka_path = r"F:/Coding/sloyka"
+
+# Добавляем локальный путь в sys.path ПЕРЕД остальными
+if local_sloyka_path not in sys.path:
+    sys.path.insert(0, local_sloyka_path)
+
 from app.common.config import config
 from app.common.db.database import (
     database,
@@ -331,8 +341,6 @@ class Preprocessing:
         osm_id = await loop.run_in_executor(None, _sync_geocode, territory_name)
         return osm_id
 
-    from shapely.geometry import Point
-
     @staticmethod
     def to_ewkt(geom: Point, srid: int = 4326) -> str:
         """
@@ -341,10 +349,13 @@ class Preprocessing:
         return f"SRID={srid};POINT({geom.x} {geom.y})"
 
     async def extract_addresses_for_unprocessed(
-        self, device: str = "cpu"
+        self,
+        device: str = "cpu",
+        top: int = None,
+        input_territory_name: str = None
     ) -> list[dict]:
         """
-        1) Ищет все сообщения (Message), у которых is_processed=False.
+        1) Ищет все сообщения (Message), у которых is_processed=False (ограничиваем top, если задан).
         2) Одним запросом получает все группы (Group), нужные для этих сообщений.
         3) Одним запросом получает все территории (Territory), нужные для этих групп.
         4) Для территорий без osm_id вызывает get_osm_id_by_territory_name (osmnx).
@@ -354,6 +365,8 @@ class Preprocessing:
         """
         async with database.session() as session:
             msg_query = select(Message).where(Message.is_processed == False)
+            if top is not None and top > 0:
+                msg_query = msg_query.limit(top)
             msg_result = await session.execute(msg_query)
             messages = msg_result.scalars().all()
 
@@ -387,13 +400,11 @@ class Preprocessing:
 
             for t in territories:
                 if not getattr(t, "osm_id", None):
-                    logger.info(
-                        f"No osm_id in DB for territory='{t.name}'. Trying osmnx..."
-                    )
+                    logger.info(f"No osm_id in DB for territory='{t.name}'. Trying osmnx...")
                     osm_id = await self.get_osm_id_by_territory_name(t.name)
                     if osm_id:
                         t.osm_id = osm_id
-            # TODO: возможно добавить сохранение osm_id в таблицу территорий
+                        logger.info(f"OSM id {t.osm_id}")
             # await session.commit()
 
             messages_by_osm = {}
@@ -431,12 +442,10 @@ class Preprocessing:
             updated_records = []
 
             for osm_key, msgs in messages_by_osm.items():
-                df = pd.DataFrame(
-                    {
-                        "message_id": [m.message_id for m in msgs],
-                        "text": [m.text for m in msgs],
-                    }
-                )
+                df = pd.DataFrame({
+                    "message_id": [m.message_id for m in msgs],
+                    "text": [m.text for m in msgs],
+                })
                 if df.empty:
                     continue
 
@@ -447,6 +456,7 @@ class Preprocessing:
                     model_path="Geor111y/flair-ner-addresses-extractor",
                     text_column_name="text",
                     city_tags={"admin_level": ["6"]},
+                    territory_name=input_territory_name
                 )
                 result_gdf = geocoder.run(group_column=None, search_for_objects=False)
 
@@ -463,10 +473,9 @@ class Preprocessing:
                     mid = row["message_id"]
                     loc = row.get("Location")
                     geom_data = row.get("geometry")
+
                     if pd.isna(loc) or pd.isna(geom_data):
-                        logger.debug(
-                            f"Skipping message_id={mid} due to NaN in location/geometry."
-                        )
+                        logger.debug(f"Skipping message_id={mid} due to NaN in location/geometry.")
                         continue
 
                     msg_obj = msg_map.get(mid)
@@ -745,7 +754,7 @@ class NER_EXTRACTOR:
         }
 
         def sync_request():
-            logger.info("Отправка запроса на URL: %s", self.url)
+            logger.info("Отправка запроса", self.url)
             try:
                 response = requests.post(
                     self.url,
@@ -756,20 +765,20 @@ class NER_EXTRACTOR:
                 )
                 if response.status_code == 200:
                     logger.info(
-                        "Получен успешный ответ от модели (код %s).",
+                        "Получен успешный ответ от модели.",
                         response.status_code,
                     )
                     response_json = response.json()
                     return response_json.get("response", "")
                 else:
                     logger.error(
-                        "Ошибка запроса: %s, ответ: %s",
+                        "Ошибка запроса",
                         response.status_code,
                         response.text,
                     )
                     return None
             except requests.exceptions.RequestException as e:
-                logger.error("Ошибка соединения при запросе: %s", e)
+                logger.error("Ошибка соединения при запросе", e)
                 return None
 
         loop = asyncio.get_running_loop()
@@ -780,7 +789,7 @@ class NER_EXTRACTOR:
         """
         Обрабатывает список элементов items (каждый со своим 'context') асинхронно.
         """
-        logger.info("Начало обработки описаний для %d элементов.", len(items))
+        logger.info("Начало обработки описаний.", len(items))
         tasks = [self.describe_async(item["context"]) for item in items]
         pbar = tqdm(total=len(tasks), desc="В процессе")
 
@@ -798,9 +807,6 @@ class NER_EXTRACTOR:
         """
         Разбивает содержимое столбца 'extracted_data' на два столбца: 'logic' и 'response'.
         """
-        logger.info(
-            "Начало разделения столбца 'extracted_data' на 'logic' и 'response'."
-        )
 
         def extract_think(text):
             match = re.search(r"<think>(.*?)</think>", text, re.DOTALL)
@@ -820,7 +826,6 @@ class NER_EXTRACTOR:
 
         df["logic"] = df["extracted_data"].apply(extract_think)
         df["response"] = df["extracted_data"].apply(extract_response)
-        logger.info("Разделение завершено.")
         return df
 
     def parse_response(self, response_str: str):
@@ -869,7 +874,7 @@ class NER_EXTRACTOR:
                     logger.warning("Ожидался словарь, но получен другой тип данных.")
                     return {}
             except Exception as e:
-                logger.error("Ошибка при разборе словаря: %s", e)
+                logger.error("Ошибка при разборе словаря", e)
                 return {}
         else:
             logger.warning("Словарь не найден в строке ответа.")
@@ -883,7 +888,7 @@ class NER_EXTRACTOR:
                 logger.debug("Парсинг словаря через ast.literal_eval успешен.")
                 return result
             except Exception as e:
-                logger.error("Ошибка при разборе словаря: %s", e)
+                logger.error("Ошибка при разборе словаря", e)
                 return {}
         else:
             logger.warning("Словарь не найден в строке ответа.")
@@ -994,7 +999,6 @@ class NER_EXTRACTOR:
         if len(named_objects["query_result"]) == 0:
             logger.info("Data from OSM collected")
             parsed_df = pd.json_normalize(named_objects.query_result)
-            logger.info(f"{parsed_df}")
             parsed_df = parsed_df.drop(
                 columns=[
                     "bbox_north",
@@ -1082,7 +1086,6 @@ class NER_EXTRACTOR:
             named_objects.groupby(["geometry", "object_name"]).size().rename("count")
         )
         grouped_df = grouped_df.join(group_counts)
-        logger.info(f"{grouped_df}")
         grouped_df = gpd.GeoDataFrame(grouped_df, geometry="geometry").set_crs(4326)
         logger.info(f"Named objects grouped")
 
@@ -1098,7 +1101,6 @@ class NER_EXTRACTOR:
         grouped_df = grouped_df[
             ~grouped_df.object_name.isin(["Александр Дрозденко", "Игорь Самохин"])
         ]
-        logger.info(f"{grouped_df}")
 
         return grouped_df
 

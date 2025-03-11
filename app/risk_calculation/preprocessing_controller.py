@@ -260,17 +260,19 @@ async def determine_emotion_for_unprocessed_messages():
 
 
 @messages_router.post("/extract_addresses")
-async def extract_addresses_for_unprocessed_messages(device: str = "cpu"):
+async def extract_addresses_for_unprocessed_messages(
+    device: str = "cpu",
+    top: int = Query(None, description="Сколько сообщений обрабатывать (None = все)"),
+    territory_name: str = Query("Ленинградская область", description="Название региона для геокодирования")
+):
     """
     POST-метод для массового извлечения адресов (location, geometry) из текстов
     в таблице messages, у которых is_processed=False.
-    1) Определяем osm_id (либо берём из таблицы territory, либо через osmnx).
-    2) Вызываем process_single_text для каждого сообщения.
-    3) Обновляем поля location, geometry, is_processed в таблице messages.
-    Возвращает статистику о количестве обновлённых записей.
     """
     updated_records = await preprocessing.extract_addresses_for_unprocessed(
-        device=device
+        device=device,
+        top=top,
+        input_territory_name=territory_name
     )
     logger.info(
         f"Extraction of addresses completed. Updated {len(updated_records)} messages."
@@ -278,6 +280,7 @@ async def extract_addresses_for_unprocessed_messages(device: str = "cpu"):
     return {
         "status": f"Extraction of addresses completed. Updated {len(updated_records)} messages."
     }
+
 
 
 @messages_router.delete("/messages")
