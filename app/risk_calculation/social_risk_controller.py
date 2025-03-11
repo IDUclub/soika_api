@@ -3,7 +3,7 @@ Router module provides api with the api router for service in swagger interface
 and collects clear logic for them.
 """
 from typing import Annotated
-from fastapi import APIRouter, Query, Depends
+from fastapi import APIRouter, Depends
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
 from app.risk_calculation.logic.spatial_methods import risk_calculator

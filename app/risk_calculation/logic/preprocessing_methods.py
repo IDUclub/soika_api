@@ -1,13 +1,3 @@
-import sys
-import os
-
-# Абсолютный путь к локальной папке "sloyka"
-local_sloyka_path = r"F:/Coding/sloyka"
-
-# Добавляем локальный путь в sys.path ПЕРЕД остальными
-if local_sloyka_path not in sys.path:
-    sys.path.insert(0, local_sloyka_path)
-
 from app.common.config import config
 from app.common.db.database import (
     database,
@@ -27,19 +17,15 @@ import numpy as np
 import requests
 from transformers import pipeline
 from concurrent.futures import ThreadPoolExecutor
-import logging
 from loguru import logger
 import pandas as pd
 import geopandas as gpd
-from sloyka import Geocoder, VKParser
-import json
+from soika import Geocoder, VKParser
 import torch
 from flair.models import SequenceTagger
-from flair.data import Sentence
 from app.risk_calculation.logic.constants import CONSTANTS
 import re
 from rapidfuzz import fuzz
-import math
 from tqdm import tqdm
 import osmnx as ox
 import ast

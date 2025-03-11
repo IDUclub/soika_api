@@ -1,7 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from fastapi import Query
 from loguru import logger
-import pandas as pd  # костыль
 from sqlalchemy import select, delete
 from geoalchemy2.shape import to_shape
 from app.risk_calculation.logic.preprocessing_methods import (
