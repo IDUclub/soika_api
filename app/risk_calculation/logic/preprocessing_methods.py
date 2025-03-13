@@ -6,6 +6,7 @@ from app.common.db.database import (
     Message,
     Emotion,
     NamedObject,
+    MessageNamedObject,
     Territory,
     GroupTerritory,
     Indicator,
@@ -1248,6 +1249,149 @@ class NER_EXTRACTOR:
             "processed_messages": len(messages),
         }
 
+    async def add_named_objects(self, file: UploadFile):
+        """
+        Обработка CSV-файла для добавления объектов (NamedObject) и восстановления связей в таблице MessageNamedObject.
+        """
+        content = await file.read()
+        decoded = content.decode("utf-8")
+        csv_reader = csv.DictReader(StringIO(decoded))
+        named_objects = []
+        
+        async with database.session() as session:
+            for row in csv_reader:
+                geom_str = row.get("geometry")
+                if geom_str:
+                    try:
+                        if geom_str.strip().upper().startswith("POINT"):
+                            point = wkt.loads(geom_str)
+                        else:
+                            x_str, y_str = geom_str.split(",")
+                            point = Point(float(x_str.strip()), float(y_str.strip()))
+                    except Exception as e:
+                        raise Exception(f"Неверный формат геометрии '{geom_str}'. Ошибка: {e}")
+                    ewkt_geometry = preprocessing.to_ewkt(point)
+                else:
+                    raise Exception("Отсутствует значение геометрии")
+                
+                object_name = row.get("object_name")
+                
+                raw_object_description = row.get("object_description")
+                try:
+                    desc_candidate = ast.literal_eval(raw_object_description)
+                    if isinstance(desc_candidate, list):
+                        object_description = "; ".join(map(str, desc_candidate))
+                    else:
+                        object_description = str(desc_candidate)
+                except Exception:
+                    object_description = raw_object_description
+                
+                raw_osm_id = row.get("osm_id")
+                osm_id = 0
+                if raw_osm_id:
+                    try:
+                        osm_candidate = ast.literal_eval(raw_osm_id)
+                        if isinstance(osm_candidate, list):
+                            first_osm = osm_candidate[0] if osm_candidate else ""
+                        else:
+                            first_osm = osm_candidate
+                        if first_osm in [None, "", ""]:
+                            osm_id = 0
+                        else:
+                            osm_id = int(float(first_osm))
+                    except Exception:
+                        try:
+                            osm_id = int(float(raw_osm_id))
+                        except Exception:
+                            osm_id = 0
+                
+                count = int(row.get("count")) if row.get("count") else None
+                osm_tag = row.get("osm_tag")
+                
+                raw_osm_name = row.get("osm_name")
+                if raw_osm_name:
+                    try:
+                        osm_name_candidate = ast.literal_eval(raw_osm_name)
+                        if isinstance(osm_name_candidate, list):
+                            accurate_location = str(osm_name_candidate[0]) if osm_name_candidate else ""
+                        else:
+                            accurate_location = str(osm_name_candidate)
+                    except Exception:
+                        accurate_location = raw_osm_name
+                else:
+                    accurate_location = None
+                
+                street_location = row.get("street_location")
+                street_location_list = []
+                if street_location:
+                    try:
+                        street_location_candidate = ast.literal_eval(street_location)
+                        if isinstance(street_location_candidate, list):
+                            street_location_list = street_location_candidate
+                        else:
+                            street_location_list = [street_location_candidate]
+                    except Exception:
+                        street_location_list = [street_location]
+                estimated_location = "; ".join(map(str, street_location_list)) if street_location_list else None
+                
+                text_field = row.get("text")
+                text_list = []
+                if text_field:
+                    try:
+                        text_candidate = ast.literal_eval(text_field)
+                        if isinstance(text_candidate, list):
+                            text_list = text_candidate
+                        else:
+                            text_list = [text_candidate]
+                    except Exception:
+                        text_list = [text_field]
+                
+                linked_message_ids = []
+                if text_list:
+                    if street_location_list and len(text_list) == len(street_location_list):
+                        for t, loc in zip(text_list, street_location_list):
+                            result = await session.execute(
+                                select(Message).where(
+                                    Message.text == t,
+                                    Message.location == loc
+                                )
+                            )
+                            msg_obj = result.scalars().first()
+                            if msg_obj:
+                                linked_message_ids.append(msg_obj.message_id)
+                    else:
+                        for t in text_list:
+                            result = await session.execute(
+                                select(Message).where(Message.text == t)
+                            )
+                            msg_obj = result.scalars().first()
+                            if msg_obj:
+                                linked_message_ids.append(msg_obj.message_id)
+                
+                text_id = linked_message_ids[0] if linked_message_ids else None
+                
+                named_obj = NamedObject(
+                    object_name=object_name,
+                    estimated_location=estimated_location,
+                    object_description=object_description,
+                    osm_id=osm_id,
+                    accurate_location=accurate_location,
+                    count=count,
+                    text_id=text_id,
+                    osm_tag=osm_tag,
+                    geometry=ewkt_geometry,
+                    is_processed=True
+                )
+                session.add(named_obj)
+                await session.flush()
+                
+                for msg_id in linked_message_ids:
+                    link = MessageNamedObject(message_id=msg_id, named_object_id=named_obj.named_object_id)
+                    session.add(link)
+                
+                named_objects.append(named_obj)
+            await session.commit()
+        return named_objects
 
 class IndicatorDefinition:
     def __init__(self):

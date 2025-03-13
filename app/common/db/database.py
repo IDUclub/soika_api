@@ -99,6 +99,7 @@ class Message(Base):
 class NamedObject(Base):
     __tablename__ = "named_object"
     named_object_id = Column(Integer, primary_key=True, nullable=False)
+    object_name = Column(String)
     estimated_location = Column(String)
     object_description = Column(String)
     osm_id = Column(Integer)
@@ -118,6 +119,14 @@ class NamedObject(Base):
     )
     is_processed = Column(Boolean)
 
+class MessageNamedObject(Base):
+    __tablename__ = "message_named_object"
+    message_id = Column(
+        Integer, ForeignKey("message.message_id"), primary_key=True, nullable=False
+    )
+    named_object_id = Column(
+        Integer, ForeignKey("named_object.named_object_id"), primary_key=True, nullable=False
+    )
 
 class Emotion(Base):
     __tablename__ = "emotion"
@@ -141,13 +150,11 @@ class MessageIndicator(Base):
         Integer, ForeignKey("indicator.indicator_id"), primary_key=True, nullable=False
     )
 
-
 class Service(Base):
     __tablename__ = "service"
     service_id = Column(Integer, primary_key=True, nullable=False)
     name = Column(String)
     value_id = Column(Integer)
-
 
 class MessageService(Base):
     __tablename__ = "message_service"

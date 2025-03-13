@@ -311,34 +311,55 @@ async def delete_all_messages():
     return {"detail": "All messages deleted"}
 
 
-@named_objects_router.get("/get_named_objects")
+@named_objects_router.get("/named_objects")
 async def get_named_objects():
     """
-    Возвращает список всех записей из таблицы named_object.
-    Поле geometry тоже приводим к строке.
+    Получает все NamedObject и возвращает их данные.
     """
     async with database.session() as session:
         result = await session.execute(select(NamedObject))
-        named_objs = result.scalars().all()
-
-    named_objects_list = []
-    for no in named_objs:
-        named_objects_list.append(
-            {
+        named_objects = result.scalars().all()
+        response = []
+        for no in named_objects:
+            response.append({
                 "named_object_id": no.named_object_id,
-                "estimated_location": no.estimated_location,
+                "object_name": no.object_name,
                 "object_description": no.object_description,
-                "osm_id": no.osm_id,
+                "estimated_location": no.estimated_location,
                 "accurate_location": no.accurate_location,
+                "osm_id": no.osm_id,
                 "count": no.count,
-                "text_id": no.text_id,
                 "osm_tag": no.osm_tag,
-                "geometry": no.geometry.wkt if no.geometry else None,
-                "is_processed": no.is_processed,
-            }
-        )
-    return {"named_objects": named_objects_list}
+                "text_id": no.text_id,
+                "geometry": to_shape(no.geometry).wkt if no.geometry else None,
+                "is_processed": no.is_processed
+            })
+        return response
 
+@named_objects_router.post("/add_named_objects")
+async def upload_named_objects(file: UploadFile = File(...)):
+    """
+    POST endpoint для загрузки Named Objects из CSV-файла.
+    
+    Принимает CSV-файл, содержащий следующие колонки:
+      - geometry: геометрия объекта (строка, в формате WKT или "x,y")
+      - object_name: название объекта
+      - text: список текстов исходных сообщений (в виде строки)
+      - street_location: список локаций исходных сообщений (в виде строки)
+      - object_description: описание объекта (если список, элементы объединяются через '; ')
+      - osm_id: идентификатор OSM (если список, берется первый элемент, пустые значения заменяются на 0)
+      - osm_name: название из OSM (если список, берется первый элемент)
+      - count: количество (целое число)
+      - osm_tag: OSM тег
+      
+    Функция добавляет записи в таблицу NamedObject и создает связи в таблице MessageNamedObject.
+    Возвращает количество добавленных объектов.
+    """
+    try:
+        named_objects = await ner_extraction.add_named_objects(file)
+        return {"inserted_count": len(named_objects)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @named_objects_router.post("/extract_named_objects")
 async def extract_named_objects_route(
@@ -351,6 +372,16 @@ async def extract_named_objects_route(
     """
     result = await ner_extraction.extract_named_objects(top=top)
     return result
+
+@named_objects_router.delete("/named_objects")
+async def delete_all_named_objects():
+    """
+    Удаляет все записи из таблицы NamedObject.
+    """
+    async with database.session() as session:
+        await session.execute(delete(NamedObject))
+        await session.commit()
+    return {"detail": "All named objects deleted successfully"}
 
 
 @indicators_router.get("/get_indicators")
