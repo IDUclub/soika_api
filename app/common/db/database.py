@@ -60,6 +60,14 @@ class Group(Base):
     group_domain = Column(String)
     matched_territory = Column(String)
 
+class GroupTerritory(Base):
+    __tablename__ = "group_teritory"
+    group_id = Column(
+        Integer, ForeignKey("group.group_id"), primary_key=True, nullable=False
+    )
+    territory_id = Column(
+        Integer, ForeignKey("territory.territory_id"), primary_key=True, nullable=False
+    ) 
 
 class Message(Base):
     __tablename__ = "message"

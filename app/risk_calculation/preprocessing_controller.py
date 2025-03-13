@@ -1,5 +1,4 @@
-from fastapi import APIRouter, HTTPException
-from fastapi import Query
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
 from loguru import logger
 from sqlalchemy import select, delete
 from geoalchemy2.shape import to_shape
@@ -180,9 +179,28 @@ async def get_messages(
     return {"messages": messages_list}
 
 
+@messages_router.post("/add_messages")
+async def upload_messages(file: UploadFile = File(...)):
+    """
+    POST-метод для загрузки сообщений с их атрибутами в базу.
+    Принимает CSV файл с колонками, соответствующими полям модели Message:
+    text, date, views, likes, reposts, type, parent_message_id, group_id,
+    emotion_id, score, geometry, location, is_processed.
+    Возвращает количество успешно добавленных сообщений.
+    """
+    try:
+        inserted_messages = await preprocessing.add_messages(file)
+        return {"inserted_count": len(inserted_messages)}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
 @messages_router.post("/collect_vk_texts")
 async def collect_vk_texts(data: VKTextsRequest):
-    result = await preprocessing.parse_VK_texts(data.territory_id, data.to_date)
+    result = await preprocessing.parse_VK_texts(
+        territory_id=data.territory_id,
+        cutoff_date=data.to_date,
+        limit=data.limit
+    )
     logger.info(f"VK texts for {data.territory_id} collected and saved to DB")
     return {
         "status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."

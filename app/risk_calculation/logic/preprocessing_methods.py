@@ -4,8 +4,10 @@ from app.common.db.database import (
     Territory,
     Group,
     Message,
+    Emotion,
     NamedObject,
     Territory,
+    GroupTerritory,
     Indicator,
     MessageIndicator,
     Service,
@@ -30,42 +32,27 @@ from tqdm import tqdm
 import osmnx as ox
 import ast
 from shapely.geometry import Point
-
+from shapely import wkt
+from fastapi import UploadFile, HTTPException
+import csv
+from io import StringIO
+from datetime import datetime, timedelta
+from dateutil.relativedelta import relativedelta
 
 # TODO: разбить методы соответственно роутерам
 class Preprocessing:
     def __init__(self):
         self.executor = ThreadPoolExecutor(max_workers=4)
         self._classification_model = None
+        # TODO: переобучить модель с flair на pytorch transformers
         self._ner_model = None
-
-    @staticmethod
-    def _load_flair_model_cpu(model_name: str) -> SequenceTagger:
-        """
-        Загружает модель Flair SequenceTagger, принудительно используя устройство CPU.
-        Переопределяет torch.load, чтобы параметр map_location всегда был torch.device("cpu").
-        """
-        orig_torch_load = torch.load
-
-        def torch_load_cpu(*args, **kwargs):
-            kwargs["map_location"] = torch.device("cpu")
-            return orig_torch_load(*args, **kwargs)
-
-        torch.load = torch_load_cpu
-        tagger = Preprocessing._original_sequence_tagger_load(model_name)
-        torch.load = orig_torch_load
-        return tagger
-
-    # Костыль для форсированного запуска модели геокодинга на ЦПУ.
-    # TODO: переобучить модель с flair на pytorch transformers
-    _original_sequence_tagger_load = SequenceTagger.load
-    SequenceTagger.load = _load_flair_model_cpu.__func__
+        logger.info(f"CUDA avaliable: {torch.cuda.is_available()}")
 
     async def init_models(self):
         """
         Асинхронная инициализация двух моделей:
         - Модель для классификации эмоций через Transformers pipeline.
-        - Модель для извлечения адресов через Flair SequenceTagger (загружается на CPU).
+        - Модель для извлечения адресов через Flair SequenceTagger.
         """
         loop = asyncio.get_event_loop()
         classification_pipeline = "text-classification"
@@ -85,7 +72,7 @@ class Preprocessing:
             ),  # TODO: нужно будет наладить обработку по частям
         )
         logger.info(
-            f"Launching NER model {ner_model_name} with Flair SequenceTagger (forcing CPU)"
+            f"Launching NER model {ner_model_name} with Flair SequenceTagger"
         )
         self._ner_model = await loop.run_in_executor(
             self.executor, lambda: SequenceTagger.load(ner_model_name)
@@ -112,29 +99,6 @@ class Preprocessing:
             groups = result.scalars().all()
 
         return groups
-
-    @staticmethod
-    async def get_latest_message_date_by_territory(territory_name: str):
-        """
-        Возвращает самую актуальную дату (max(Message.date)) по всем сообщениям,
-        связанным с группами, которые принадлежат указанной территории.
-        Если сообщений нет, вернёт None.
-        """
-        async with database.session() as session:
-            query = (
-                select(func.max(Message.date))
-                .select_from(Territory)
-                .join(
-                    territory_group,
-                    Territory.territory_id == territory_group.c.territory_id,
-                )
-                .join(Group, territory_group.c.group_id == Group.group_id)
-                .join(Message, Group.group_id == Message.group_id)
-                .where(Territory.name == territory_name)
-            )
-            result = await session.execute(query)
-            latest_date = result.scalar()
-        return latest_date.strftime("%Y-%m-%d") if latest_date else None
 
     async def create_territory(self, payload: Territory):
         """
@@ -199,22 +163,213 @@ class Preprocessing:
 
         return territory_name
 
-    async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None):
+    async def add_messages(self, file: UploadFile):
+        """
+        Обработка CSV-файла для добавления сообщений в базу данных.
+        """
+        logger.info("Начало обработки CSV-файла для добавления сообщений.")
+
+        # Костыль: Добавляем искусственное сообщение с message_id = 1, если его ещё нет
+        async with database.session() as session:
+            result = await session.execute(select(Message).where(Message.message_id == 1))
+            dummy = result.scalars().first()
+            if not dummy:
+                dummy_message = Message(
+                    message_id=1,
+                    text="Искусственное сообщение - dummy record",
+                    date=datetime.now(),
+                    views=0,
+                    likes=0,
+                    reposts=0,
+                    type="post",
+                    parent_message_id=1,
+                    group_id=None,
+                    emotion_id=None,
+                    score=None,
+                    geometry=None,
+                    location=None,
+                    is_processed=True,
+                )
+                session.add(dummy_message)
+                await session.commit()
+                logger.info("Искусственное сообщение добавлено с message_id=1.")
+
+        content = await file.read()
+        decoded = content.decode("utf-8")
+        csv_reader = csv.DictReader(StringIO(decoded))
+        messages = []
+        ru_service_names = CONSTANTS.json["ru_service_names"]
+
+        async with database.session() as session:
+            for row in csv_reader:
+                emotion_name = row.get("emotion")
+                result = await session.execute(select(Emotion).where(Emotion.name == emotion_name))
+                emotion_obj = result.scalars().first()
+                if not emotion_obj:
+                    logger.error(f"Эмоция '{emotion_name}' не найдена в базе данных")
+                    raise Exception(f"Эмоция '{emotion_name}' не найдена в базе данных")
+                emotion_id = emotion_obj.emotion_id
+
+                geom_str = row.get("geometry")
+                if geom_str:
+                    try:
+                        if geom_str.strip().upper().startswith("POINT"):
+                            from shapely import wkt
+                            point = wkt.loads(geom_str)
+                        else:
+                            x_str, y_str = geom_str.split(",")
+                            point = Point(float(x_str.strip()), float(y_str.strip()))
+                        ewkt_geometry = self.to_ewkt(point)
+                    except Exception as e:
+                        logger.error(f"Неверный формат геометрии '{geom_str}'. Ошибка: {e}")
+                        raise Exception(f"Неверный формат геометрии '{geom_str}'. Ошибка: {e}")
+                else:
+                    logger.error("Отсутствует значение геометрии")
+                    raise Exception("Отсутствует значение геометрии")
+                
+                territory_id = None
+                territory_name = row.get("territory_name")
+                if territory_name:
+                    result = await session.execute(select(Territory).where(Territory.name == territory_name))
+                    territory_obj = result.scalars().first()
+                    if not territory_obj:
+                        territory_obj = Territory(name=territory_name)
+                        session.add(territory_obj)
+                        await session.flush()
+                        logger.info(f"Создана новая территория: {territory_name}")
+                    territory_id = territory_obj.territory_id
+
+                group_id = None
+                group_name = row.get("group_name")
+                if group_name:
+                    result = await session.execute(select(Group).where(Group.name == group_name))
+                    group_obj = result.scalars().first()
+                    if not group_obj:
+                        matched_territory = row.get("territory_name")
+                        group_domain = row.get("group_domain")
+                        group_obj = Group(name=group_name, group_domain=group_domain, matched_territory=matched_territory)
+                        session.add(group_obj)
+                        await session.flush()
+                        logger.info(f"Создана новая группа: {group_name}")
+                    group_id = group_obj.group_id
+
+                message = Message(
+                    text=row.get("text"),
+                    date=datetime.fromisoformat(row.get("date")) if row.get("date") else None,
+                    views=int(row.get("views")) if row.get("views") else None,
+                    likes=int(row.get("likes")) if row.get("likes") else None,
+                    reposts=int(row.get("reposts")) if row.get("reposts") else None,
+                    type=row.get("type"),
+                    parent_message_id=1,  # Продолжение костыля - дальше должно вести на нормальный айдишник
+                    group_id=group_id,
+                    emotion_id=emotion_id,
+                    score=float(row.get("score")) if row.get("score") else None,
+                    geometry=ewkt_geometry,
+                    location=row.get("location"),
+                    is_processed=row.get("is_processed").strip().lower() in ["true", "1"]
+                        if row.get("is_processed") else False,
+                )
+                session.add(message)
+                await session.flush()
+
+                message.parent_message_id = message.message_id
+                await session.flush()
+
+                services_field = row.get("services")
+                if services_field:
+                    services_list = [s.strip() for s in services_field.split(",") if s.strip()]
+                    services_list = self.replace_service_names(services_list, ru_service_names)
+                    services_list = list(dict.fromkeys(services_list))
+                    with session.no_autoflush:
+                        for service_name in services_list:
+                            result = await session.execute(
+                                select(Service).where(Service.name == service_name)
+                            )
+                            service_obj = result.scalars().first()
+                            if not service_obj:
+                                service_obj = Service(name=service_name)
+                                session.add(service_obj)
+                                await session.flush()
+                                logger.info(f"Сервис '{service_name}' добавлен в базу данных")
+                            msg_service = MessageService(
+                                message_id=message.message_id, service_id=service_obj.service_id
+                            )
+                            session.add(msg_service)
+
+                indicators_field = row.get("indicators")
+                if indicators_field:
+                    indicators_list = [s.strip() for s in indicators_field.split(",") if s.strip()]
+                    indicators_list = list(dict.fromkeys(indicators_list))
+                    with session.no_autoflush:
+                        for indicator_name in indicators_list:
+                            result = await session.execute(
+                                select(Indicator).where(Indicator.name == indicator_name)
+                            )
+                            indicator_obj = result.scalars().first()
+                            if not indicator_obj:
+                                logger.error(f"Индикатор '{indicator_name}' не найден в базе данных")
+                                raise Exception(f"Индикатор '{indicator_name}' не найден в базе данных")
+                            result = await session.execute(
+                                select(MessageIndicator).where(
+                                    MessageIndicator.message_id == message.message_id,
+                                    MessageIndicator.indicator_id == indicator_obj.indicator_id
+                                )
+                            )
+                            existing = result.scalars().first()
+                            if existing:
+                                logger.warning(
+                                    f"Связь для индикатора {indicator_obj.indicator_id} уже существует для сообщения {message.message_id}. Пропускаем."
+                                )
+                                continue
+                            msg_indicator = MessageIndicator(
+                                message_id=message.message_id, indicator_id=indicator_obj.indicator_id
+                            )
+                            session.add(msg_indicator)
+
+                if group_id and territory_id:
+                    result = await session.execute(
+                        select(GroupTerritory).where(
+                            GroupTerritory.group_id == group_id,
+                            GroupTerritory.territory_id == territory_id
+                        )
+                    )
+                    group_territory_obj = result.scalars().first()
+                    if not group_territory_obj:
+                        group_territory_obj = GroupTerritory(group_id=group_id, territory_id=territory_id)
+                        session.add(group_territory_obj)
+                messages.append(message)
+            await session.commit()
+        logger.info(f"Обработка файла завершена. Добавлено сообщений: {len(messages)}")
+        return messages
+
+
+    @staticmethod
+    async def get_latest_message_date_by_territory_id(territory_id: int):
+        """
+        Возвращает самую актуальную дату (max(Message.date)) по всем сообщениям,
+        связанным с группами, которые принадлежат указанной территории.
+        Если сообщений нет, вернёт None.
+        """
+        async with database.session() as session:
+            query = (
+                select(func.max(Message.date))
+                .select_from(Territory)
+                .join(GroupTerritory, Territory.territory_id == GroupTerritory.territory_id)
+                .join(Group, Group.group_id == GroupTerritory.group_id)
+                .join(Message, Message.group_id == Group.group_id)
+                .where(Territory.territory_id == territory_id)
+            )
+            result = await session.execute(query)
+            latest_date = result.scalar()
+        return latest_date
+
+
+    async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None, limit: int = None):
         """
         Получает сообщения из ВК для групп, связанных с territory_id.
-        Если cutoff_date не указан, определяется автоматически:
-          1. Если в БД уже есть сообщения по этой территории,
-             cutoff_date = (максимальная_дата_сообщения + 1 день)
-          2. Если сообщений нет,
-             cutoff_date = (текущая_дата - 2 года)
-
-        Парсинг и запись в базу данных выполняется по группам,
-        чтобы после каждой группы сразу делать commit.
         """
         if not cutoff_date:
-            latest_date = await self.get_latest_message_date_by_territory_id(
-                territory_id
-            )
+            latest_date = await self.get_latest_message_date_by_territory_id(territory_id)
             if latest_date:
                 next_day = latest_date + timedelta(days=1)
                 cutoff_date = next_day.strftime("%Y-%m-%d")
@@ -226,6 +381,7 @@ class Preprocessing:
         parser = VKParser()
         groups = await self.get_groups_by_territory_id(territory_id)
         all_messages_data = []
+        total_messages_count = 0
 
         logger.info(
             f"Starting to parse VK texts for territory_id={territory_id}, "
@@ -233,6 +389,10 @@ class Preprocessing:
         )
 
         for group in groups:
+            if limit is not None and total_messages_count >= limit:
+                logger.info("Global message limit reached. Stopping further processing.")
+                break
+
             logger.info(
                 f"Processing group_id={group.group_id}, domain={group.group_domain}..."
             )
@@ -246,6 +406,10 @@ class Preprocessing:
             if df.empty:
                 logger.info(f"No new messages for group_id={group.group_id}. Skipping.")
                 continue
+
+            if limit is not None:
+                remaining = limit - total_messages_count
+                df = df.head(remaining)
 
             df["group_id"] = group.group_id
             df = df.replace({np.nan: None})
@@ -290,11 +454,12 @@ class Preprocessing:
                 f"Committed {len(messages_data)} messages to DB "
                 f"for group_id={group.group_id}."
             )
+            total_messages_count += len(messages_data)
             all_messages_data.extend(messages_data)
 
         logger.info(
             f"Finished parsing territory_id={territory_id}. "
-            f"Total messages processed: {len(all_messages_data)}."
+            f"Total messages processed: {total_messages_count}."
         )
         return all_messages_data
 
@@ -634,66 +799,6 @@ class Preprocessing:
             "processed_messages": len(messages),
         }
 
-    async def detect_indicators(self, text):
-        """
-        Возвращает список показателей (названий ключей), упомянутых в тексте.
-        Учитываются:
-        – базовые ключевые слова из keywords_dict,
-        – исключаются совпадения, попадающие в irrelevant_mentions_dict,
-        – применяются правила из priority_and_exact_keywords_dict.
-        """
-        detected_indicators = []
-        text_lower = text.lower()
-        indicators_keywords = CONSTANTS.json["indicators_keywords"]
-        indicators_irrelevant_mentions = CONSTANTS.json[
-            "indicators_irrelevant_mentions"
-        ]
-        indicators_priority_and_exact_keywords = CONSTANTS.json[
-            "indicators_priority_and_exact_keywords"
-        ]
-        for indicator, keywords in indicators_keywords.items():
-            found = False
-            for kw in keywords:
-                if self.fuzzy_search(text_lower, kw):
-                    found = True
-                    break
-            if not found:
-                continue
-
-            for irr in indicators_irrelevant_mentions.get(indicator, []):
-                if self.fuzzy_search(text_lower, irr):
-                    found = False
-                    break
-            if not found:
-                continue
-
-            if indicator in indicators_priority_and_exact_keywords:
-                local_config = indicators_priority_and_exact_keywords[indicator]
-                exact_found = any(
-                    self.fuzzy_search(text_lower, ex_kw, threshold=85)
-                    for ex_kw in local_config.get("exact_keywords", [])
-                )
-                if exact_found:
-                    detected_indicators.append(indicator)
-                    continue
-
-                priority_over_found = any(
-                    self.fuzzy_search(text_lower, po_kw, threshold=85)
-                    for po_kw in local_config.get("priority_over", [])
-                )
-                if priority_over_found:
-                    continue
-                for excl in local_config.get("exclude_verbs", []):
-                    if self.fuzzy_search(text_lower, excl, threshold=75):
-                        found = False
-                        break
-                if not found:
-                    continue
-
-            detected_indicators.append(indicator)
-        return detected_indicators
-
-
 class NER_EXTRACTOR:
     def __init__(self):
         self.url = config.get("GPU_URL")
@@ -859,20 +964,6 @@ class NER_EXTRACTOR:
                 else:
                     logger.warning("Ожидался словарь, но получен другой тип данных.")
                     return {}
-            except Exception as e:
-                logger.error("Ошибка при разборе словаря", e)
-                return {}
-        else:
-            logger.warning("Словарь не найден в строке ответа.")
-            return {}
-
-        match = re.search(r"(\{.*\})", cleaned_str, re.DOTALL)
-        if match:
-            dict_str = match.group(1)
-            try:
-                result = ast.literal_eval(dict_str)
-                logger.debug("Парсинг словаря через ast.literal_eval успешен.")
-                return result
             except Exception as e:
                 logger.error("Ошибка при разборе словаря", e)
                 return {}
