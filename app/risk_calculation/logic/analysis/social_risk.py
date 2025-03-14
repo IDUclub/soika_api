@@ -27,9 +27,9 @@ class RiskCalculation:
         """
         df = df.copy()
         df["emotion_weight"] = df["emotion"].map(self.emotion_weights)
-        df["minmaxed_views"] = risk_calculation.minmax_normalize(df["views.count"])
-        df["minmaxed_likes"] = risk_calculation.minmax_normalize(df["likes.count"])
-        df["minmaxed_reposts"] = risk_calculation.minmax_normalize(df["reposts.count"])
+        df["minmaxed_views"] = risk_calculation.minmax_normalize(df["views"])
+        df["minmaxed_likes"] = risk_calculation.minmax_normalize(df["likes"])
+        df["minmaxed_reposts"] = risk_calculation.minmax_normalize(df["reposts"])
         df["engagement_score"] = df.fillna(0).apply(
             lambda row: row["minmaxed_views"] +
                         row["minmaxed_likes"] +
@@ -159,16 +159,16 @@ class RiskCalculation:
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await text_processing.get_texts(project_area)
 
-        if len(texts['texts']) == 0:
+        if len(texts) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
 
         logger.info(f"Calculating social risk for project {project_id} and its context")
-        scored_texts = await risk_calculation.calculate_score(texts['texts'])
+        scored_texts = await risk_calculation.calculate_score(texts)
         score_df = await risk_calculation.score_table(scored_texts)
 
-        texts_df = texts['texts'].copy()
+        texts_df = texts.copy()
         texts_df = texts_df[['text', 'services', 'indicators']]
         texts_df = texts_df.groupby(
             ['text', 'services'] 
@@ -186,29 +186,5 @@ class RiskCalculation:
         response = {'social_risk_table': result_dict}
         logger.info(f"Table response generated")
         return response
-
-    @staticmethod
-    async def summarize_risk(df):
-        score_df = df.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
-        score_df['total_score'] = score_df.sum(axis=1)
-        score_df['total_score'] = (score_df['total_score'] / 5).clip(lower=0, upper=1)
-        return score_df
-
-
-    @staticmethod
-    async def map_risk_score(df):
-        mapping_df = pd.DataFrame(CONSTANTS.json['service_to_values_mapping'])
-        result_series = pd.Series()
-        for service, row in df.iterrows():
-            group = mapping_df[mapping_df['services'] == service]['social_group'].values
-            value_type = mapping_df[mapping_df['services'] == service]['values'].values
-            
-            if len(group) > 0 and len(value_type) > 0:
-                social_group = group[0]
-                values = value_type[0]
-                index_name = f"{values}/{social_group}"
-                result_series[index_name] = row['total_score']
-
-        return result_series
     
 risk_calculation = RiskCalculation()

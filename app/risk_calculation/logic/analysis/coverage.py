@@ -19,7 +19,7 @@ class CoverageCalculation:
         local_areas["area"] = local_areas.area
 
         urban_areas = urban_areas.merge(
-            texts["best_match"].value_counts().rename("count"),
+            texts["territory_name"].value_counts().rename("count"),
             left_on="name",
             right_index=True,
             how="left",
@@ -70,13 +70,13 @@ class CoverageCalculation:
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await text_processing.get_texts(project_area)
-        if len(texts["texts"]) == 0:
+        if len(texts) == 0:
             logger.info("No texts for this area")
             return {}
 
         logger.info("Retrieving potential areas of coverage")
         region_territories = await urban_db_api.get_territories(territory_id)
-        urban_areas = await CoverageCalculation.get_areas(region_territories, texts["texts"])
+        urban_areas = await CoverageCalculation.get_areas(region_territories, texts)
         logger.info("Generating links from project to coverage areas")
         links = await CoverageCalculation.get_links(project_id, urban_areas, region_territories)
 

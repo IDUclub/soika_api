@@ -12,11 +12,9 @@ from app.risk_calculation.logic.analysis.risk_values import risk_values_collecti
 from app.risk_calculation.logic.analysis.texts_processing import text_processing
 from app.risk_calculation.logic.analysis.named_objects import named_objects_collection
 from app.risk_calculation.logic.analysis.constants import (
-    TEXTS,
     CONSTANTS,
     OBJECTS,
     bucket_name,
-    text_name,
     constants_name,
     objects_name,
 )
@@ -38,7 +36,6 @@ async def get_social_risk(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
     response = await risk_calculation.calculate_social_risk(
         dto.territory_id, dto.project_id
     )
@@ -59,7 +56,6 @@ async def get_social_risk_coverage(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
     response = await coverage_calculation.calculate_coverage(
         dto.territory_id, dto.project_id
     )
@@ -81,7 +77,6 @@ async def get_texts_for_territory(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
     response = await text_processing.collect_texts(dto.territory_id, dto.project_id)
     logger.info("Texts for social risk collected")
     return response
@@ -101,7 +96,6 @@ async def generate_risk_values_table(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
     CONSTANTS.try_init(bucket_name, constants_name)
     response = await risk_values_collection.calculate_values_to_risk_data(
         dto.territory_id, dto.project_id
