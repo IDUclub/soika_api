@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.common.config import config
-from app.risk_calculation.social_risk_controller import router
+from app.risk_calculation.social_risk_controller import calculation_router
 
 
 logger.remove()
@@ -31,4 +31,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(router, prefix=config.get("FASTAPI_PREFIX"))
+app.include_router(
+    calculation_router, prefix=config.get("FASTAPI_PREFIX"), tags=["Analysis"]
+)
