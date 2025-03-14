@@ -15,89 +15,98 @@ class RiskCalculation:
         """Initialize the class with emotion weights."""
         self.emotion_weights = emotion_weights or {'positive': 1.5, 'neutral': 1, 'negative': 1.5}
 
-    async def expand_rows_by_columns(self, dataframe, columns):
+    @staticmethod
+    def reproject_to_local(gdf: gpd.GeoDataFrame) -> tuple[gpd.GeoDataFrame, any]:
         """
-        Expands rows based on specified columns containing comma-separated values.
-        
-        Args:
-            dataframe (pd.DataFrame): Input DataFrame.
-            columns (list): List of columns to expand.
+        Приводит GeoDataFrame к локальной UTM проекции.
 
         Returns:
-            pd.DataFrame: Expanded DataFrame.
+            Tuple: (GeoDataFrame в локальной проекции, локальная CRS)
+        """
+        local_crs = gdf.estimate_utm_crs()
+        local_gdf = gdf.to_crs(local_crs)
+        return local_gdf, local_crs
+
+    @staticmethod
+    def clip_and_reproject(source_gdf: gpd.GeoDataFrame, territory_gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """
+        Приводит оба GeoDataFrame (исходный и территории) к одной локальной проекции,
+        обрезает исходный по территории и возвращает результат в системе EPSG:4326.
+        """
+        local_territory, local_crs = risk_calculator.reproject_to_local(territory_gdf)
+        local_source = source_gdf.to_crs(local_crs)
+        clipped = gpd.clip(local_source, local_territory)
+        return clipped.to_crs(epsg=4326)
+
+    @staticmethod
+    def minmax_normalize(series: pd.Series) -> pd.Series:
+        """
+        Выполняет нормализацию данных по методу min-max.
+
+        Returns:
+            pd.Series: Нормализованная серия
+        """
+        return (series - series.min()) / (series.max() - series.min())
+    
+    async def expand_rows_by_columns(self, dataframe, columns):
+        """
+        Расширяет строки DataFrame по заданным столбцам с разделёнными значениями.
         """
         expanded_df = dataframe.copy()
         for column in columns:
-            expanded_df[column] = expanded_df[column].str.split(', ')
+            expanded_df[column] = expanded_df[column].str.split(", ")
             expanded_df = expanded_df.explode(column, ignore_index=True)
-
         return expanded_df
 
     @staticmethod
     async def to_gdf(geometry: Polygon | Point | MultiPolygon) -> gpd.GeoDataFrame:
         """
-        Convert list of coordinates to GeoDataFrame
+        Преобразует переданную геометрию в GeoDataFrame.
         """
-
         if isinstance(geometry, Point):
-            gs: gpd.GeoSeries = gpd.GeoSeries(
-                [geometry], crs=4326
-            ).to_crs(3857)
+            gs: gpd.GeoSeries = gpd.GeoSeries([geometry], crs=4326).to_crs(3857)
             buffer = gs.buffer(500)
             gdf = gpd.GeoDataFrame(geometry=buffer, crs=3857)
             gdf.to_crs(4326, inplace=True)
         else:
-            geometry = {'geometry': [shape(geometry)]}
-            gdf = gpd.GeoDataFrame(geometry, geometry='geometry', crs=4326)
-
+            geometry = {"geometry": [shape(geometry)]}
+            gdf = gpd.GeoDataFrame(geometry, geometry="geometry", crs=4326)
         return gdf
 
     @staticmethod
-    async def get_texts(
-        territory_gdf: gpd.GeoDataFrame
-    ):
+    async def get_texts(territory_gdf: gpd.GeoDataFrame):
         """
-        Retrieves the source texts in the given territory.
-
-        Args:
-            territory_gdf (gpd.GeoDataFrame): A GeoDataFrame representing the area of interest.
-
-        Returns:
-            Dict[str, Any]: A dictionary with 'buffer_size' and 'texts' keys.
+        Извлекает тексты, относящиеся к заданной территории.
+        Применяется общая функция для обрезки и приведения CRS.
         """
-        territory_gdf = territory_gdf.copy()
         texts_gdf = TEXTS.gdf.copy()
-
-        local_crs = territory_gdf.estimate_utm_crs()
-        territory_gdf = territory_gdf.to_crs(local_crs)
-        texts_gdf = texts_gdf.to_crs(local_crs)
-
-        texts_gdf = texts_gdf[texts_gdf['type'] != 'post']
-
-        local_texts = gpd.clip(texts_gdf, territory_gdf)
-
-        return {
-            'texts': local_texts.to_crs(epsg=4326)
-        }
+        texts_gdf = texts_gdf[texts_gdf["type"] != "post"] # TODO: исключение постов стоит потом пересмотреть
+        local_texts = risk_calculator.clip_and_reproject(texts_gdf, territory_gdf)
+        return {"texts": local_texts}
 
     async def calculate_score(self, df):
+        """
+        Вычисляет итоговый скор на основе нормализованных показателей и веса эмоции.
+        """
         df = df.copy()
-        df['emotion_weight'] = df['emotion'].map(self.emotion_weights)
-        df['minmaxed_views'] = (df['views.count'] - df['views.count'].min()) / (df['views.count'].max() - df['views.count'].min())
-        df['minmaxed_likes'] = (df['likes.count'] - df['likes.count'].min()) / (df['likes.count'].max() - df['likes.count'].min())
-        df['minmaxed_reposts'] = (df['reposts.count'] - df['reposts.count'].min()) / (df['reposts.count'].max() - df['reposts.count'].min())
-        df['engagement_score'] = df.fillna(0).apply(
-            lambda row: row['minmaxed_views'] + row['minmaxed_likes'] + row['minmaxed_reposts'] + 1,
-            axis=1
+        df["emotion_weight"] = df["emotion"].map(self.emotion_weights)
+        df["minmaxed_views"] = risk_calculator.minmax_normalize(df["views.count"])
+        df["minmaxed_likes"] = risk_calculator.minmax_normalize(df["likes.count"])
+        df["minmaxed_reposts"] = risk_calculator.minmax_normalize(df["reposts.count"])
+        df["engagement_score"] = df.fillna(0).apply(
+            lambda row: row["minmaxed_views"] +
+                        row["minmaxed_likes"] +
+                        row["minmaxed_reposts"] + 1, axis=1
         )
-        low_threshold = df['engagement_score'].quantile(1/3)
-        high_threshold = df['engagement_score'].quantile(2/3)
-        df['activity_level'] = df['engagement_score'].apply(
+        low_threshold = df["engagement_score"].quantile(1 / 3)
+        high_threshold = df["engagement_score"].quantile(2 / 3)
+        df["activity_level"] = df["engagement_score"].apply(
             lambda x: "активно" if x >= high_threshold else ("умеренно" if x >= low_threshold else "мало")
         )
-        df['score'] = df['engagement_score'] * df['emotion_weight']
-        df['score'] = df['score'].round(4)
-        return df.drop(columns=['minmaxed_views', 'minmaxed_likes', 'minmaxed_reposts', 'engagement_score'])
+        df["score"] = (df["engagement_score"] * df["emotion_weight"]).round(4)
+        return df.drop(
+            columns=["minmaxed_views", "minmaxed_likes", "minmaxed_reposts", "engagement_score"]
+        )
 
     @staticmethod
     def get_top_indicators(row):
@@ -357,58 +366,79 @@ class RiskCalculation:
 
     @staticmethod
     async def get_areas(urban_areas: gpd.GeoDataFrame, texts: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-        urban_areas = urban_areas.merge(texts['best_match'].value_counts().rename('count'), left_on='name', right_index=True, how='left')
-        urban_areas = urban_areas[['name', 'territory_id', 'admin_center', 'is_city', 'geometry', 'count']]
-        urban_areas.dropna(subset='count', inplace=True)
-        local_crs = urban_areas.estimate_utm_crs()
-        urban_areas['area'] = urban_areas.to_crs(local_crs).area
-        urban_areas = urban_areas.sort_values(by='area', ascending=False).drop_duplicates(subset='name', keep='first')
-        urban_areas.drop(columns=['area'], inplace=True)
+        """
+        Определяет зоны охвата, используя данные об урбанизированных территориях и тексты.
+        Здесь используется helper reproject_to_local для унифицированного вычисления площадей.
+        """
+        local_areas, local_crs = risk_calculator.reproject_to_local(urban_areas)
+        local_areas["area"] = local_areas.area
+
+        urban_areas = urban_areas.merge(
+            texts["best_match"].value_counts().rename("count"),
+            left_on="name",
+            right_index=True,
+            how="left",
+        )
+        urban_areas = urban_areas[["name", "territory_id", "admin_center", "is_city", "geometry", "count"]]
+        urban_areas.dropna(subset=["count"], inplace=True)
+
+        local_areas = local_areas.loc[urban_areas.index].sort_values("area", ascending=False)
+        urban_areas = local_areas.drop(columns=["area"]).to_crs(epsg=4326)
         return urban_areas
 
     @staticmethod
     async def get_area_centroid(area, region_territories):
-        if area['is_city']:
+        """
+        Определяет центроид территории.
+        Если это город – используется центроид объекта, иначе берется центроид административного центра.
+        """
+        if area["is_city"]:
             return area.geometry.centroid
         else:
-            filtered_region = region_territories.loc[region_territories['territory_id'] == area.admin_center]
+            filtered_region = region_territories.loc[
+                region_territories["territory_id"] == area.admin_center
+            ]
             return filtered_region.geometry.centroid.iloc[0]
 
     @staticmethod
     async def get_links(project_id: int, urban_areas: gpd.GeoDataFrame, region_territories: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+        """
+        Создает линейные связи между центроидом проекта и центроидами urban-территорий.
+        """
         project_centroid = await urban_db_api.get_project_territory_centroid(project_id)
         areas = urban_areas.copy()
-        areas['geometry'] = await asyncio.gather(*[
-            risk_calculator.get_area_centroid(area, region_territories) for _, area in areas.iterrows()
-        ])
-        areas['geometry'] = areas.apply(
+        areas["geometry"] = await asyncio.gather(
+            *[risk_calculator.get_area_centroid(area, region_territories) for _, area in areas.iterrows()]
+        )
+        areas["geometry"] = areas.apply(
             lambda area: LineString([area.geometry, project_centroid]), axis=1
         )
-        grouped = areas.groupby('geometry').agg({
-            'name': lambda x: list(x)
-        }).reset_index()
-        grouped.rename(columns={'name': 'urban_area'}, inplace=True)
-        combined_lines_gdf = gpd.GeoDataFrame(grouped, geometry='geometry', crs=areas.crs)
-        return combined_lines_gdf
+        grouped = areas.groupby("geometry").agg({"name": lambda x: list(x)}).reset_index()
+        grouped.rename(columns={"name": "urban_area"}, inplace=True)
+        links_gdf = gpd.GeoDataFrame(grouped, geometry="geometry", crs=urban_areas.crs)
+        return links_gdf
 
     async def calculate_coverage(self, territory_id, project_id):
+        """
+        Расчет охвата: получение текстов, определение urban-территорий и построение связей с проектом.
+        """
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await risk_calculator.get_texts(project_area)
-        if len(texts['texts']) == 0:
-            logger.info(f"No texts for this area")
-            response = {}
-            return response
-        logger.info(f"Retrieving potential areas of coverage for project {project_id}")
+        if len(texts["texts"]) == 0:
+            logger.info("No texts for this area")
+            return {}
+
+        logger.info("Retrieving potential areas of coverage")
         region_territories = await urban_db_api.get_territories(territory_id)
-        logger.info("Calculating coverage")
-        urban_areas = await risk_calculator.get_areas(region_territories, texts['texts'])
-        logger.info(f"Generating links from project {project_id} to coverage areas")
+        urban_areas = await risk_calculator.get_areas(region_territories, texts["texts"])
+        logger.info("Generating links from project to coverage areas")
         links = await risk_calculator.get_links(project_id, urban_areas, region_territories)
-        urban_areas.drop(columns=['admin_center', 'is_city'], inplace=True)
+
+        urban_areas.drop(columns=["admin_center", "is_city"], inplace=True)
         response = {
-        'coverage_areas': json.loads(urban_areas.to_json()),
-        'links_to_project': json.loads(links.to_json())
+            "coverage_areas": json.loads(urban_areas.to_json()),
+            "links_to_project": json.loads(links.to_json()),
         }
         return response
 
@@ -435,23 +465,11 @@ class RiskCalculation:
     @staticmethod
     async def get_objects(territory_gdf: gpd.GeoDataFrame):
         """
-        Retrieves the objects for the given territory.
-
-        Args:
-            territory_gdf (gpd.GeoDataFrame): A GeoDataFrame representing the area of interest.
-
-        Returns:
-            Dict[str, Any]: A dictionary with an 'objects' key containing the GeoDataFrame in EPSG:4326.
+        Извлекает объекты для заданной территории с использованием общей функции обрезки.
         """
-        territory_gdf = territory_gdf.copy()
         objects_gdf = OBJECTS.gdf.copy()
-        local_crs = territory_gdf.estimate_utm_crs()
-        territory_gdf = territory_gdf.to_crs(local_crs)
-        objects_gdf = objects_gdf.to_crs(local_crs)
-        local_objects = gpd.clip(objects_gdf, territory_gdf)
-        return {
-            'objects': local_objects.to_crs(epsg=4326)
-        }
+        local_objects = risk_calculator.clip_and_reproject(objects_gdf, territory_gdf)
+        return {"objects": local_objects.to_crs(epsg=4326)}
 
     async def collect_named_objects(self, territory_id, project_id):
         logger.info(f"Retrieving objects for project {project_id} and its context")
