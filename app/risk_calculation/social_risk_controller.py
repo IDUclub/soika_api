@@ -13,10 +13,8 @@ from app.risk_calculation.logic.analysis.texts_processing import text_processing
 from app.risk_calculation.logic.analysis.named_objects import named_objects_collection
 from app.risk_calculation.logic.analysis.constants import (
     CONSTANTS,
-    OBJECTS,
     bucket_name,
-    constants_name,
-    objects_name,
+    constants_name
 )
 
 calculation_router = APIRouter()
@@ -118,7 +116,6 @@ async def get_named_objects(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    OBJECTS.try_init(bucket_name, objects_name)
     response = await named_objects_collection.collect_named_objects(
         dto.territory_id, dto.project_id
     )

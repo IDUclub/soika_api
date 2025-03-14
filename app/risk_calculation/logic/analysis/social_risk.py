@@ -1,9 +1,7 @@
 import pandas as pd
-import geopandas as gpd
 
 from loguru import logger
 from app.risk_calculation.logic.analysis.texts_processing import text_processing
-from app.risk_calculation.logic.analysis.constants import TEXTS, CONSTANTS
 from app.common.api.urbandb_api_gateway import urban_db_api
 
 class RiskCalculation:
