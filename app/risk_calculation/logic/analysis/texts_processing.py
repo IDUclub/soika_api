@@ -1,12 +1,13 @@
 import geopandas as gpd
 import pandas as pd
-import json
+import numpy as np
 from loguru import logger
 from sqlalchemy import select
 from geoalchemy2.shape import to_shape
 from geoalchemy2.functions import ST_Intersects, ST_GeomFromText
 
 from app.common.api.urbandb_api_gateway import urban_db_api
+from app.risk_calculation.logic.analysis.constants import CONSTANTS
 from app.common.db.database import Message, Emotion, Indicator, Service, MessageIndicator, MessageService, Territory, Group, GroupTerritory, database
 
 class TextProcessing:
@@ -73,9 +74,15 @@ class TextProcessing:
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await text_processing.get_texts(project_area)
+        services_categories = CONSTANTS.json['services_categories']
+        texts['category'] = texts['services'].map(services_categories) + ' инфраструктура'
+        missing_services = texts[texts['category'].isna()].services.unique().tolist()
+        if len(missing_services) > 0:
+            logger.info(f"Attention: services not mapped to categories: {missing_services}")
+        texts = texts.replace({np.nan: None})
         texts["date"] = pd.to_datetime(texts["date"])
         texts["date"] = texts["date"].dt.strftime("%Y-%m-%d")
-        texts = texts[['message_id', 'date', 'services']].sort_values(by='date').reset_index(drop=True)
+        texts = texts[['message_id', 'date', 'category']].sort_values(by='date').reset_index(drop=True)
         if len(texts) == 0:
             logger.info(f"No texts for this area")
             response = {}
