@@ -76,7 +76,7 @@ async def get_texts_for_territory(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
     response = await text_processing.collect_texts(dto.territory_id, dto.project_id)
-    logger.info("Texts for social risk collected")
+    logger.info("Texts for territory collected")
     return response
 
 
