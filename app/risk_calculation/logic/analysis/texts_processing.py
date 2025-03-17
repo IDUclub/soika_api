@@ -1,4 +1,5 @@
 import geopandas as gpd
+import pandas as pd
 import json
 from loguru import logger
 from sqlalchemy import select
@@ -72,19 +73,15 @@ class TextProcessing:
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
         texts = await text_processing.get_texts(project_area)
+        texts["date"] = pd.to_datetime(texts["date"])
+        texts["date"] = texts["date"].dt.strftime("%Y-%m-%d")
+        texts = texts[['message_id', 'date', 'services']].sort_values(by='date').reset_index(drop=True)
         if len(texts) == 0:
             logger.info(f"No texts for this area")
             response = {}
             return response
-        texts_df = texts.copy()
-        texts_df = texts_df[['text', 'services', 'indicators']]
-        texts_df = texts_df.groupby(
-            ['text', 'services'] 
-        ).agg({ 
-            'indicators': lambda x: ', '.join(set(x))
-        }).reset_index()  
         response = {
-            'texts': json.loads(texts_df.to_json()),
+            'texts': texts.to_dict(),
         }
         return response
     
