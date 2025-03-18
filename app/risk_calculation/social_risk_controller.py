@@ -3,13 +3,15 @@ Router module provides api with the api router for service in swagger interface
 and collects clear logic for them.
 """
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import Depends, APIRouter
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
 from app.risk_calculation.dto.time_series_dto import TimeSeriesRequest
+from app.utils import auth
 from app.risk_calculation.logic.analysis.social_risk import risk_calculation
 from app.risk_calculation.logic.analysis.coverage import coverage_calculation
 from app.risk_calculation.logic.analysis.risk_values import risk_values_collection
+from app.risk_calculation.logic.analysis.risk_provision import risk_provision_collection
 from app.risk_calculation.logic.analysis.texts_processing import text_processing
 from app.risk_calculation.logic.analysis.named_objects import named_objects_collection
 from app.risk_calculation.logic.analysis.constants import (
@@ -83,7 +85,7 @@ async def get_texts_for_territory(
 
 
 @calculation_router.get("/risk_values/")
-async def generate_risk_values_table(
+async def generate_risk_values(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
     """Function to generate table for values and risk for the territory
@@ -103,6 +105,16 @@ async def generate_risk_values_table(
     logger.info("Risk-values table generated")
     return response
 
+@calculation_router.get('/risk_provision')
+async def generate_risk_provision(dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)],
+                        token: str = Depends(auth.verify_token)):
+    logger.info(
+        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
+    )
+    response = await risk_provision_collection.calculate_provision_to_risk_data(
+        dto.territory_id, dto.project_id, token
+    )
+    return response
 
 @calculation_router.get("/named_objects/")
 async def get_named_objects(
