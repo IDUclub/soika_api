@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
+from app.risk_calculation.dto.time_series_dto import TimeSeriesRequest
 from app.risk_calculation.logic.analysis.social_risk import risk_calculation
 from app.risk_calculation.logic.analysis.coverage import coverage_calculation
 from app.risk_calculation.logic.analysis.risk_values import risk_values_collection
@@ -63,19 +64,20 @@ async def get_social_risk_coverage(
 
 @calculation_router.get("/collect_texts/")
 async def get_texts_for_territory(
-    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+    dto: Annotated[TimeSeriesRequest, Depends(TimeSeriesRequest)]
 ) -> dict:
     """Function to collect texts for the territory
     Args:
         territory_id (int): ID of the territory
         project_id (int): ID of the project
+        time_period (str): time period to count texts
     Returns:
         dict: dict with dataframe with texts and their attributes
     """
     logger.info(
-        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
+        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}, time_period={dto.time_period}"
     )
-    response = await text_processing.collect_texts(dto.territory_id, dto.project_id)
+    response = await text_processing.collect_texts(dto.territory_id, dto.project_id, dto.time_period)
     logger.info("Texts for territory collected")
     return response
 
