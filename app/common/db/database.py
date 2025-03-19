@@ -61,7 +61,7 @@ class Group(Base):
     matched_territory = Column(String)
 
 class GroupTerritory(Base):
-    __tablename__ = "group_teritory"
+    __tablename__ = "group_territory"
     group_id = Column(
         Integer, ForeignKey("group.group_id"), primary_key=True, nullable=False
     )
