@@ -1,13 +1,8 @@
 import geopandas as gpd
-import pandas as pd
-import numpy as np
-from loguru import logger
 from sqlalchemy import select
 from geoalchemy2.shape import to_shape
 from geoalchemy2.functions import ST_Intersects, ST_GeomFromText
 
-from app.common.api.urbandb_api_gateway import urban_db_api
-from app.risk_calculation.logic.analysis.constants import CONSTANTS
 from app.common.db.database import Message, Emotion, Indicator, Service, MessageIndicator, MessageService, Territory, Group, GroupTerritory, database
 
 class TextProcessing:
@@ -69,69 +64,5 @@ class TextProcessing:
 
         gdf = gpd.GeoDataFrame(data, geometry="geometry", crs=messages_crs)
         return gdf
-
-    async def collect_texts(self, territory_id, project_id, period):
-        """
-        Retrieves texts for a given project and groups them by a specified period.
-        
-        Parameters:
-            territory_id: идентификатор территории
-            project_id: идентификатор проекта
-            period: строка, определяющая период группировки ('day', 'week', 'month', 'year')
-        
-        Returns:
-            Словарь, содержащий DataFrame с колонками:
-                - category: категория сервисов
-                - date: начало периода (в формате YYYY-MM-DD)
-                - count: количество сообщений в этом периоде для данной категории
-            Если между периодами имеются промежутки, они заполняются значением 0 в count.
-        """
-        logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
-        texts = await text_processing.get_texts(project_area)
-        
-        services_categories = CONSTANTS.json['services_categories']
-        texts['category'] = texts['services'].map(services_categories) + ' инфраструктура'
-        missing_services = texts[texts['category'].isna()].services.unique().tolist()
-        if missing_services:
-            logger.info(f"Attention: services not mapped to categories: {missing_services}")
-        
-        texts = texts.replace({np.nan: None})
-        texts["date"] = pd.to_datetime(texts["date"])
-
-        if period == 'day':
-            texts['period'] = texts['date'].dt.floor('D')
-            freq = 'D'
-        elif period == 'week':
-            texts['period'] = texts['date'].dt.to_period('W').apply(lambda r: r.start_time)
-            freq = 'W-MON'
-        elif period == 'month':
-            texts['period'] = texts['date'].dt.to_period('M').apply(lambda r: r.start_time)
-            freq = 'MS' 
-        elif period == 'year':
-            texts['period'] = texts['date'].dt.to_period('Y').apply(lambda r: r.start_time)
-            freq = 'AS'  
-
-        grouped = texts.groupby(['category', 'period']).size().reset_index(name='count')
-        
-        complete_dfs = []
-        for cat in grouped['category'].unique():
-            df_cat = grouped[grouped['category'] == cat].copy()
-            start_date = df_cat['period'].min()
-            end_date = df_cat['period'].max()
-            full_dates = pd.DataFrame({'period': pd.date_range(start=start_date, end=end_date, freq=freq)})
-            full_dates['category'] = cat
-            df_cat = full_dates.merge(df_cat, on=['category', 'period'], how='left')
-            df_cat['count'] = df_cat['count'].fillna(0).astype(int)
-            complete_dfs.append(df_cat)
-        
-        if complete_dfs:
-            result = pd.concat(complete_dfs)
-            result.rename(columns={'period': 'date'}, inplace=True)
-            result['date'] = result['date'].dt.strftime('%Y-%m-%d')
-            return {'texts': result.to_dict(orient='records')}
-        else:
-            logger.info("No texts for this area")
-            return {}
     
 text_processing = TextProcessing()
