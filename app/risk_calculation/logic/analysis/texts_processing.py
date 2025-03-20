@@ -69,6 +69,13 @@ class TextProcessing:
 
         gdf = gpd.GeoDataFrame(data, geometry="geometry", crs=messages_crs)
         return gdf
+    
+    @staticmethod
+    async def summarize_risk(df):
+        score_df = df.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
+        score_df['total_score'] = score_df.sum(axis=1)
+        score_df['total_score'] = (score_df['total_score'] / 5).clip(lower=0, upper=1)
+        return score_df
 
     async def collect_texts(self, territory_id, project_id, period):
         """

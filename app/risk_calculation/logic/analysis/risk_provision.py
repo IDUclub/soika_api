@@ -9,13 +9,6 @@ from app.common.api.urbandb_api_gateway import urban_db_api
 from app.common.api.townsnet_api_gateway import townsnet_api
 
 class RiskProvision:
-    @staticmethod
-    async def summarize_risk(df):
-        score_df = df.groupby(['services', 'indicators'])['score'].mean().unstack(fill_value=0)
-        score_df['total_score'] = score_df.sum(axis=1)
-        score_df['total_score'] = (score_df['total_score'] / 5).clip(lower=0, upper=1)
-        return score_df
-
     async def calculate_provision_to_risk_data(self, territory_id, project_id, token):
         logger.info(f"Retrieving texts for project {project_id} and its context")
         project_area = await urban_db_api.get_context_territories(territory_id, project_id)
@@ -27,7 +20,7 @@ class RiskProvision:
             return response
         logger.info(f"Calculating risk-to-value table for project {project_id} and its context")
         scored_texts = await risk_calculation.calculate_score(texts)
-        score_df = await risk_provision_collection.summarize_risk(scored_texts)
+        score_df = await text_processing.summarize_risk(scored_texts)
 
         territories_with_provision = await townsnet_api.get_evaluated_territories(project_id, token)
         services = [col for col in territories_with_provision.columns if col not in ['geometry', 'territory_id', 'basic', 'additional', 'comfort', 'Обеспеченность']]
