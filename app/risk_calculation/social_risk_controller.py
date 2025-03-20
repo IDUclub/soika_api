@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import Depends, APIRouter
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
+from app.risk_calculation.dto.scenario_territory_dto import ScenarioTerritoryRequest
 from app.risk_calculation.dto.time_series_dto import TimeSeriesRequest
 from app.utils import auth
 from app.risk_calculation.logic.analysis.social_risk import risk_calculation
@@ -14,6 +15,7 @@ from app.risk_calculation.logic.analysis.risk_values import risk_values_collecti
 from app.risk_calculation.logic.analysis.risk_provision import risk_provision_collection
 from app.risk_calculation.logic.analysis.texts_processing import text_processing
 from app.risk_calculation.logic.analysis.named_objects import named_objects_collection
+from app.risk_calculation.logic.analysis.effects import effects_calculation
 from app.risk_calculation.logic.analysis.constants import (
     CONSTANTS,
     bucket_name,
@@ -134,4 +136,16 @@ async def get_named_objects(
         dto.territory_id, dto.project_id
     )
     logger.info("Named objects collected")
+    return response
+
+@calculation_router.get('/risk_effects')
+async def get_risks_for_effects(dto: Annotated[ScenarioTerritoryRequest, Depends(ScenarioTerritoryRequest)],
+                        token: str = Depends(auth.verify_token)):
+    logger.info(
+        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}, scenario_id={dto.scenario_id}"
+    )
+    response = await effects_calculation.calculate_risk_for_effects(
+        dto.territory_id, dto.project_id,dto.scenario_id, token
+    )
+    logger.info("Risk for effects calculated")
     return response
