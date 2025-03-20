@@ -3,18 +3,23 @@ Router module provides api with the api router for service in swagger interface
 and collects clear logic for them.
 """
 from typing import Annotated
-from fastapi import APIRouter, Depends
+from fastapi import Depends, APIRouter
 from loguru import logger
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
-from app.risk_calculation.logic.spatial_methods import risk_calculator
-from app.risk_calculation.logic.constants import (
-    TEXTS,
+from app.risk_calculation.dto.scenario_territory_dto import ScenarioTerritoryRequest
+from app.risk_calculation.dto.time_series_dto import TimeSeriesRequest
+from app.utils import auth
+from app.risk_calculation.logic.analysis.social_risk import risk_calculation
+from app.risk_calculation.logic.analysis.coverage import coverage_calculation
+from app.risk_calculation.logic.analysis.risk_values import risk_values_collection
+from app.risk_calculation.logic.analysis.risk_provision import risk_provision_collection
+from app.risk_calculation.logic.analysis.texts_processing import text_processing
+from app.risk_calculation.logic.analysis.named_objects import named_objects_collection
+from app.risk_calculation.logic.analysis.effects import effects_calculation
+from app.risk_calculation.logic.analysis.constants import (
     CONSTANTS,
-    OBJECTS,
     bucket_name,
-    text_name,
-    constants_name,
-    objects_name,
+    constants_name
 )
 
 calculation_router = APIRouter()
@@ -34,8 +39,7 @@ async def get_social_risk(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
-    response = await risk_calculator.calculate_social_risk(
+    response = await risk_calculation.calculate_social_risk(
         dto.territory_id, dto.project_id
     )
     return response
@@ -55,8 +59,7 @@ async def get_social_risk_coverage(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
-    response = await risk_calculator.calculate_coverage(
+    response = await coverage_calculation.calculate_coverage(
         dto.territory_id, dto.project_id
     )
     logger.info("Social risk coverage response generated")
@@ -65,26 +68,26 @@ async def get_social_risk_coverage(
 
 @calculation_router.get("/collect_texts/")
 async def get_texts_for_territory(
-    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+    dto: Annotated[TimeSeriesRequest, Depends(TimeSeriesRequest)]
 ) -> dict:
     """Function to collect texts for the territory
     Args:
         territory_id (int): ID of the territory
         project_id (int): ID of the project
+        time_period (str): time period to count texts
     Returns:
         dict: dict with dataframe with texts and their attributes
     """
     logger.info(
-        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
+        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}, time_period={dto.time_period}"
     )
-    TEXTS.try_init(bucket_name, text_name)
-    response = await risk_calculator.collect_texts(dto.territory_id, dto.project_id)
-    logger.info("Texts for social risk collected")
+    response = await text_processing.collect_texts(dto.territory_id, dto.project_id, dto.time_period)
+    logger.info("Texts for territory collected")
     return response
 
 
 @calculation_router.get("/risk_values/")
-async def generate_risk_values_table(
+async def generate_risk_values(
     dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
 ) -> dict:
     """Function to generate table for values and risk for the territory
@@ -97,14 +100,23 @@ async def generate_risk_values_table(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    TEXTS.try_init(bucket_name, text_name)
     CONSTANTS.try_init(bucket_name, constants_name)
-    response = await risk_calculator.calculate_values_to_risk_data(
+    response = await risk_values_collection.calculate_values_to_risk_data(
         dto.territory_id, dto.project_id
     )
     logger.info("Risk-values table generated")
     return response
 
+@calculation_router.get('/risk_provision')
+async def generate_risk_provision(dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)],
+                        token: str = Depends(auth.verify_token)):
+    logger.info(
+        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
+    )
+    response = await risk_provision_collection.calculate_provision_to_risk_data(
+        dto.territory_id, dto.project_id, token
+    )
+    return response
 
 @calculation_router.get("/named_objects/")
 async def get_named_objects(
@@ -120,9 +132,20 @@ async def get_named_objects(
     logger.info(
         f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}"
     )
-    OBJECTS.try_init(bucket_name, objects_name)
-    response = await risk_calculator.collect_named_objects(
+    response = await named_objects_collection.collect_named_objects(
         dto.territory_id, dto.project_id
     )
     logger.info("Named objects collected")
+    return response
+
+@calculation_router.get('/risk_effects')
+async def get_risks_for_effects(dto: Annotated[ScenarioTerritoryRequest, Depends(ScenarioTerritoryRequest)],
+                        token: str = Depends(auth.verify_token)):
+    logger.info(
+        f"Started request processing with territory_id={dto.territory_id}, project_id={dto.project_id}, scenario_id={dto.scenario_id}"
+    )
+    response = await effects_calculation.calculate_risk_for_effects(
+        dto.territory_id, dto.project_id,dto.scenario_id, token
+    )
+    logger.info("Risk for effects calculated")
     return response
