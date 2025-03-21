@@ -13,9 +13,10 @@ from pandas import DataFrame
 
 from app.common.storage import caching_service
 from app.common.storage.implementations.cacheable_bytes import CacheableBytes
-from app.common.config import config
+from iduconfig import Config
 from datetime import datetime
 
+config = Config()
 
 class DataGetter:
     """

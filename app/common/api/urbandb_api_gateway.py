@@ -1,126 +1,110 @@
+import asyncio
 import aiohttp
 from loguru import logger
-import json
 from shapely.geometry import shape, Point
 import geopandas as gpd
 import pandas as pd
-import asyncio
 
-from app.common.config import config
+from iduconfig import Config
 from app.common.exceptions.http_exception_wrapper import http_exception
+from app.common.api.api_error_handler import APIHandler
 
+config = Config()
 
 class UrbanDBAPI:
     def __init__(self):
         self.url = config.get("UrbanDB_API")
+        self.session = aiohttp.ClientSession()
+        self.handler = APIHandler(self.session)
 
-    async def get_child_territories(
-        self, territory_id: int, page_num: int, page_size: int
-    ):
+    async def get_child_territories(self, territory_id: int, page_num: int, page_size: int):
         """
         Collecting child territories from UrbanDB_API.
         """
-        api_url = f"{self.url}/v1/territories?parent_id={territory_id}&get_all_levels=true&cities_only=False&page={page_num}&page_size={page_size}"
+        api_url = (
+            f"{self.url}/v1/territories?parent_id={territory_id}"
+            f"&get_all_levels=true&cities_only=False&page={page_num}&page_size={page_size}"
+        )
         logger.info(f"Fetching child territories from API: {api_url}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    json_data = await response.json()
-                    logger.info(
-                        f"Child territories for territory_id {territory_id} successfully fetched from API."
-                    )
-                    territories = []
-                    for territory in json_data["results"]:
-                        territories.append(
-                            [
-                                territory["name"],
-                                territory["territory_id"],
-                                territory["admin_center"],
-                                territory["is_city"],
-                                territory["parent"]["id"],
-                                territory["level"],
-                                shape(territory["geometry"]),
-                            ]
-                        )
-                    territories = gpd.GeoDataFrame(
-                        pd.DataFrame(
-                            territories,
-                            columns=[
-                                "name",
-                                "territory_id",
-                                "admin_center",
-                                "is_city",
-                                "parent_id",
-                                "level",
-                                "geometry",
-                            ],
-                        ),
-                        geometry="geometry",
-                        crs=4326,
-                    )
-                    territories["admin_center"] = territories["admin_center"].apply(
-                        lambda x: x.get("id") if isinstance(x, dict) else None
-                    )
-                    return territories
-                else:
-                    logger.error(
-                        f"Failed to fetch child territories, status code: {response.status}"
-                    )
-                    raise http_exception(
-                        response.status, f"Failed to fetch territory", str(response.url)
-                    )
-
+        json_data = await self.handler.request("GET", api_url)
+        
+        logger.info(
+            f"Child territories for territory_id {territory_id} successfully fetched from API."
+        )
+        territories = []
+        for territory in json_data["results"]:
+            territories.append([
+                territory["name"],
+                territory["territory_id"],
+                territory["admin_center"],
+                territory["is_city"],
+                territory["parent"]["id"],
+                territory["level"],
+                shape(territory["geometry"]),
+            ])
+        territories = gpd.GeoDataFrame(
+            pd.DataFrame(
+                territories,
+                columns=[
+                    "name",
+                    "territory_id",
+                    "admin_center",
+                    "is_city",
+                    "parent_id",
+                    "level",
+                    "geometry",
+                ],
+            ),
+            geometry="geometry",
+            crs=4326,
+        )
+        territories["admin_center"] = territories["admin_center"].apply(
+            lambda x: x.get("id") if isinstance(x, dict) else None
+        )
+        return territories
+    
     async def get_territory(self, territory_id: int):
         """
         Collecting territory from UrbanDB_API.
         """
         api_url = f"{self.url}/v1/territory/{territory_id}"
-        logger.info(f"Fetching territories from API: {api_url}")
+        logger.info(f"Fetching territory from API: {api_url}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    json_data = await response.json()
-                    logger.info(
-                        f"Territory for territory_id {territory_id} successfully fetched from API."
-                    )
-                    territory = [
-                        json_data["name"],
-                        json_data["territory_id"],
-                        json_data["admin_center"],
-                        json_data["is_city"],
-                        json_data["parent"]["id"],
-                        json_data["level"],
-                        shape(json_data["geometry"]),
-                    ]
-                    territory = gpd.GeoDataFrame(
-                        pd.DataFrame(
-                            [territory],
-                            columns=[
-                                "name",
-                                "territory_id",
-                                "admin_center",
-                                "is_city",
-                                "parent_id",
-                                "level",
-                                "geometry",
-                            ],
-                        ),
-                        geometry="geometry",
-                        crs=4326,
-                    )
-                    territory["admin_center"] = territory["admin_center"].apply(
-                        lambda x: x.get("id") if isinstance(x, dict) else None
-                    )
-                    return territory
-                else:
-                    logger.error(
-                        f"Failed to fetch territory, status code: {response.status}"
-                    )
-                    raise http_exception(
-                        response.status, f"Failed to fetch territory", str(response.url)
-                    )
+        json_data = await self.handler.request("GET", api_url)
+
+        logger.info(
+            f"Territory for territory_id {territory_id} successfully fetched from API."
+        )
+        territory = [
+            json_data["name"],
+            json_data["territory_id"],
+            json_data["admin_center"],
+            json_data["is_city"],
+            json_data["parent"]["id"],
+            json_data["level"],
+            shape(json_data["geometry"]),
+        ]
+        territory = gpd.GeoDataFrame(
+            pd.DataFrame(
+                [territory],
+                columns=[
+                    "name",
+                    "territory_id",
+                    "admin_center",
+                    "is_city",
+                    "parent_id",
+                    "level",
+                    "geometry",
+                ],
+            ),
+            geometry="geometry",
+            crs=4326,
+        )
+        territory["admin_center"] = territory["admin_center"].apply(
+            lambda x: x.get("id") if isinstance(x, dict) else None
+        )
+        return territory
 
     async def get_territories(self, territory_id):
         """
@@ -131,7 +115,7 @@ class UrbanDBAPI:
         territories = pd.concat([parent_territory, child_territories])
         territories = (
             territories.explode().reset_index(drop=True).drop_duplicates(subset="name")
-        )  # need to check for bugs later
+        )
         return territories
 
     async def get_project_territory_centroid(self, project_id):
@@ -141,56 +125,33 @@ class UrbanDBAPI:
         api_url = f"{self.url}/v1/projects/{project_id}/territory"
         logger.info(f"Fetching project territory from API: {api_url}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    json_data = await response.json()
-                    centre_coords = json_data.get("centre_point", {}).get(
-                        "coordinates", None
-                    )
-                    return Point(centre_coords)
-                else:
-                    logger.error(
-                        f"Failed to fetch centroid of territory, status code: {response.status}"
-                    )
-                    raise http_exception(
-                        response.status,
-                        f"Failed to fetch centroid of territory",
-                        str(response.url),
-                    )
+        json_data = await self.handler.request("GET", api_url)
+        centre_coords = json_data.get("centre_point", {}).get("coordinates", None)
+        return Point(centre_coords)
 
     async def get_context_ids(self, territory_id, project_id):
         """
         Finding id of territories which are in the context of the project
         """
-        api_url = f"{self.url}/v1/projects?is_regional=false&territory_id={territory_id}&page=1&page_size=10000"
+        api_url = (
+            f"{self.url}/v1/projects?is_regional=false&territory_id={territory_id}"
+            f"&page=1&page_size=10000"
+        )
         logger.info(f"Fetching list of projects for the territory from API: {api_url}")
 
-        async with aiohttp.ClientSession() as session:
-            async with session.get(api_url) as response:
-                if response.status == 200:
-                    json_data = await response.json()
-                    logger.info(
-                        f"List of projects for the territory {territory_id} successfully fetched from API."
-                    )
-                    results = json_data.get("results", [])
-                    for project in results:
-                        if project.get("project_id") == project_id:
-                            return project.get("properties", {}).get("context", [])
-                    raise http_exception(
-                        response.status,
-                        f"Failed to fetch list of context ids",
-                        str(response.url),
-                    )
-                else:
-                    logger.error(
-                        f"Failed to fetch list of projects, status code: {response.status}"
-                    )
-                    raise http_exception(
-                        response.status,
-                        f"Failed to fetch list pf projects",
-                        str(response.url),
-                    )
+        json_data = await self.handler.request("GET", api_url)
+        logger.info(
+            f"List of projects for the territory {territory_id} successfully fetched from API."
+        )
+        results = json_data.get("results", [])
+        for project in results:
+            if project.get("project_id") == project_id:
+                return project.get("properties", {}).get("context", [])
+        raise http_exception(
+            404,
+            f"Context IDs not found for project {project_id}",
+            api_url,
+        )
 
     async def get_context_territories(self, territory_id, project_id):
         """
@@ -198,15 +159,19 @@ class UrbanDBAPI:
         """
         context_list = await self.get_context_ids(territory_id, project_id)
         logger.info(f"Starting collection of territories for project {project_id}")
-        context_territories_tasks = [
-            self.get_territory(context_territory) for context_territory in context_list
-        ]
-        context_territories = await asyncio.gather(*context_territories_tasks)
-        context_territories = pd.concat(context_territories)
+        
+        all_context_territories = []
+        chunk_size = 15
+        for i in range(0, len(context_list), chunk_size):
+            chunk = context_list[i:i + chunk_size]
+            tasks = [self.get_territory(context_territory) for context_territory in chunk]
+            chunk_results = await asyncio.gather(*tasks)
+            all_context_territories.extend(chunk_results)
+        
+        context_territories = pd.concat(all_context_territories)
         logger.info(
-            f"Context territories for project {project_id} succesfully collected"
+            f"Context territories for project {project_id} successfully collected"
         )
         return context_territories
-
 
 urban_db_api = UrbanDBAPI()

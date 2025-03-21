@@ -1,10 +1,9 @@
 from pathlib import Path
 from datetime import datetime
-
-from app.common.config import config
+from iduconfig import Config
 from app.common.storage.interfaces import Cacheable
 from app.common.exceptions.http_exception_wrapper import http_exception
-
+config = Config()
 
 class CachingService:
     def __init__(self, cache_path: Path):

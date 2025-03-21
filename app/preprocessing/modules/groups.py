@@ -1,0 +1,107 @@
+import asyncio
+import requests
+import pandas as pd
+from app.common.db.database import (
+    Territory,
+    Group,
+    Territory,
+)
+from app.common.db.db_engine import database
+from sqlalchemy import select, delete
+from app.common.exceptions.http_exception_wrapper import http_exception
+from iduconfig import Config
+
+config = Config()
+
+class GroupsCalculation:
+    @staticmethod
+    def process_vk_groups_df(data, territory_name):
+            df = pd.DataFrame(data["response"]["items"])[["id", "name", "screen_name"]]
+            df.rename(
+                columns={"screen_name": "group_domain", "id": "group_id"}, inplace=True
+            )
+            df["matched_territory"] = territory_name
+            return df.to_dict("records")
+
+    @staticmethod
+    async def get_groups_by_territory_id(territory_id: int):
+        async with database.session() as session:
+            territory = await session.get(Territory, territory_id)
+            if not territory:
+                raise http_exception(
+                    status_code=404,
+                    detail=f"Territory with id={territory_id} not found",
+                )
+            territory_name = territory.name
+            query = select(Group).where(Group.matched_territory == territory_name)
+            result = await session.execute(query)
+            groups = result.scalars().all()
+
+        return groups
+
+    async def search_vk_groups(
+        self, territory_id: int, sort: int = 4, count: int = 20, version: str = "5.131"
+    ) -> str:
+        async with database.session() as session:
+            territory = await session.get(Territory, territory_id)
+            if not territory:
+                raise http_exception(
+                    status_code=404,
+                    detail=f"Territory with id={territory_id} not found",
+                )
+            territory_name = territory.name
+
+        group_access_key = config.get("VK_GROUP_ACCESS_KEY")
+        params = {
+            "q": territory_name,
+            "sort": sort,
+            "count": count,
+            "access_token": group_access_key,
+            "v": version,
+        }
+
+        response = await asyncio.to_thread(
+            requests.get, "https://api.vk.com/method/groups.search", params=params
+        )
+        data = response.json()
+        records = await asyncio.to_thread(groups_calculation.process_vk_groups_df, data, territory_name)
+
+        async with database.session() as session:
+            for record in records:
+                group_obj = Group(
+                    group_id=record["group_id"],
+                    name=record["name"],
+                    group_domain=record["group_domain"],
+                    matched_territory=record["matched_territory"],
+                )
+                session.add(group_obj)
+            await session.commit()
+
+        return territory_name
+
+    async def get_all_groups():
+        async with database.session() as session:
+            result = await session.execute(select(Group))
+            groups = result.scalars().all()
+        groups_list = [
+            {
+                "group_id": g.group_id,
+                "name": g.name,
+                "group_domain": g.group_domain,
+                "matched_territory": g.matched_territory,
+            }
+            for g in groups
+        ]
+        return {"groups": groups_list}
+
+    async def collect_vk_groups_func(data):
+        result = await groups_calculation.search_vk_groups(data.territory_id)
+        return {"status": f"VK groups for id {data.territory_id} {result} collected and saved to database"}
+
+    async def delete_all_groups_func():
+        async with database.session() as session:
+            await session.execute(delete(Group))
+            await session.commit()
+        return {"detail": "All groups deleted"}
+    
+groups_calculation = GroupsCalculation()
