@@ -33,5 +33,6 @@ class VKTextsRequest(BaseModel):
         try:
             datetime.strptime(value, "%Y-%m-%d")
         except ValueError:
-            raise http_exception(status_code=400, msg="to_date должен иметь формат 'YYYY-MM-DD'")
+            raise http_exception(400, "to_date должен иметь формат 'YYYY-MM-DD'", value, None)
         return value
+

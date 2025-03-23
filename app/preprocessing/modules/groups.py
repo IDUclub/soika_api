@@ -29,8 +29,10 @@ class GroupsCalculation:
             territory = await session.get(Territory, territory_id)
             if not territory:
                 raise http_exception(
-                    status_code=404,
-                    detail=f"Territory with id={territory_id} not found",
+                    404,
+                    f"Territory with id={territory_id} not found",
+                    territory_id,
+                    None
                 )
             territory_name = territory.name
             query = select(Group).where(Group.matched_territory == territory_name)
@@ -46,8 +48,10 @@ class GroupsCalculation:
             territory = await session.get(Territory, territory_id)
             if not territory:
                 raise http_exception(
-                    status_code=404,
-                    detail=f"Territory with id={territory_id} not found",
+                    404,
+                    f"Territory with id={territory_id} not found",
+                    territory_id,
+                    None
                 )
             territory_name = territory.name
 
@@ -64,7 +68,9 @@ class GroupsCalculation:
             requests.get, "https://api.vk.com/method/groups.search", params=params
         )
         data = response.json()
-        records = await asyncio.to_thread(groups_calculation.process_vk_groups_df, data, territory_name)
+        records = await asyncio.to_thread(
+            groups_calculation.process_vk_groups_df, data, territory_name
+        )
 
         async with database.session() as session:
             for record in records:
@@ -79,6 +85,8 @@ class GroupsCalculation:
 
         return territory_name
 
+
+    @staticmethod
     async def get_all_groups():
         async with database.session() as session:
             result = await session.execute(select(Group))
@@ -94,10 +102,12 @@ class GroupsCalculation:
         ]
         return {"groups": groups_list}
 
+    @staticmethod
     async def collect_vk_groups_func(data):
         result = await groups_calculation.search_vk_groups(data.territory_id)
         return {"status": f"VK groups for id {data.territory_id} {result} collected and saved to database"}
 
+    @staticmethod
     async def delete_all_groups_func():
         async with database.session() as session:
             await session.execute(delete(Group))

@@ -24,11 +24,13 @@ class CachingService:
                 500,
                 "Several instances of file in cache directory, manual conflict resolution required",
                 [name, len(files)],
+                None
             )
 
         # Only 1 instance of file can be in cache directory
         file = files[0]
         return file
+
 
     def get_file_meta(self, name: str) -> str:
         file = self.get_cached_file_name(name)

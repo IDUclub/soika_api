@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from app.dependencies import setup_logger, include_routers
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from app.preprocessing.modules.models import models_initialization
 from fastapi.responses import JSONResponse
 from fastapi import Request
@@ -34,6 +35,12 @@ app.add_middleware(
 )
 
 include_routers(app, config)
+
+app.mount(
+    "/gpu_access",
+    StaticFiles(directory="app/gpu_access"), 
+    name="gpu_access"
+)
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

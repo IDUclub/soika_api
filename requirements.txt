@@ -15,7 +15,7 @@ shapely~=2.0.1
 SQLAlchemy~=2.0.35
 uvicorn~=0.30.6
 transformers~=4.49.0
-soika[geocoder,vk_parser]==0.2.9
+soika[geocoder,vk_parser]~=0.3.0
 flair~=0.15.1
 RapidFuzz~=3.12.2
 osmnx~=1.5.1
@@ -23,3 +23,4 @@ python-dateutil~=2.9.0.post0
 asyncpg~=0.30.0
 requests~=2.32.3
 IDU-config~=1.0.0
+python-multipart~=0.0.5

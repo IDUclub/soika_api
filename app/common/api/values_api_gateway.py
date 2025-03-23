@@ -30,9 +30,7 @@ class ValuesAPI:
         df_melted = df_values.stack().reset_index()
         df_melted.columns = ["social_group", "value", "indicator"]
         df_melted["indicator"] = df_melted["indicator"].map(lambda x: x[0])
-        df_melted["social_value"] = (
-            df_melted["value"] + "/" + df_melted["social_group"]
-        )
+        df_melted["social_value"] = df_melted["value"] + "/" + df_melted["social_group"]
         df_melted.set_index("social_value", inplace=True)
 
         if not pd.api.types.is_numeric_dtype(df_melted["indicator"]):
@@ -41,7 +39,10 @@ class ValuesAPI:
             )
             logger.error(error_message)
             raise http_exception(
-                400, error_message, api_url
+                400,
+                error_message,
+                api_url,
+                None
             )
 
         return df_melted["indicator"]

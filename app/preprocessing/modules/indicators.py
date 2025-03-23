@@ -9,6 +9,7 @@ from app.common.db.database import (
 )
 from app.common.db.db_engine import database
 from sqlalchemy import select, delete
+from app.common.exceptions.http_exception_wrapper import http_exception
 from app.preprocessing.modules import utils
 from iduconfig import Config
 
@@ -74,7 +75,6 @@ class IndicatorsCalculation:
                 logger.error("Ошибка соединения при запросе: %s", e)
                 return None
 
-        # Синхронный запрос оборачиваем в asyncio.to_thread
         result = await asyncio.to_thread(sync_request)
         return result
 
@@ -109,12 +109,18 @@ class IndicatorsCalculation:
         """
         Принимает DataFrame с колонкой 'text', обрабатывает запросы и возвращает список результатов.
         """
-        # Формирование списка запросов из DataFrame – потенциально затратная операция
         def build_items(df):
             return [{"context": row["text"]} for _, row in df.iterrows()]
         items = await asyncio.to_thread(build_items, df)
 
         indicators = await indicators_calculation.process_find_indicators(items)
+        if not indicators or all(d is None for d in indicators):
+            raise http_exception(
+                status_code=400,
+                msg="Ошибка соединения при запросах",
+                input_data=indicators,
+                detail="Проверьте корректность подключения к LLM"
+            )
         processed_indicators = await asyncio.to_thread(indicators_calculation.process_indicators, indicators)
         return processed_indicators
 
@@ -185,6 +191,7 @@ class IndicatorsCalculation:
             "processed_messages": len(messages),
         }
     
+    @staticmethod
     async def get_all_indicators():
         async with database.session() as session:
             result = await session.execute(select(Indicator))
@@ -192,6 +199,7 @@ class IndicatorsCalculation:
         indicators_list = [{"indicator_id": i.indicator_id, "name": i.name} for i in indicators]
         return {"indicators": indicators_list}
 
+    @staticmethod
     async def get_all_message_indicator_pairs():
         async with database.session() as session:
             result = await session.execute(select(MessageIndicator))
@@ -199,6 +207,7 @@ class IndicatorsCalculation:
         indicators_list = [{"message_id": i.message_id, "indicator_id": i.indicator_id} for i in indicators]
         return {"message_indicator_pairs": indicators_list}
 
+    @staticmethod
     async def create_indicator_func(payload):
         async with database.session() as session:
             new_indicator = Indicator(name=payload.name)
@@ -207,10 +216,12 @@ class IndicatorsCalculation:
             await session.refresh(new_indicator)
         return {"indicator_id": new_indicator.indicator_id, "name": new_indicator.name}
 
+    @staticmethod
     async def extract_indicators_func(top: int = None):
         result = await indicators_calculation.extract_indicators(top=top)
         return result
 
+    @staticmethod
     async def delete_all_indicators_func():
         async with database.session() as session:
             await session.execute(delete(Indicator))

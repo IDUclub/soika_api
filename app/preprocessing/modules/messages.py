@@ -27,6 +27,8 @@ from dateutil.relativedelta import relativedelta
 from fastapi import UploadFile, HTTPException
 from app.preprocessing.modules import utils
 from app.preprocessing.modules.models import models_initialization
+from app.preprocessing.modules.groups import groups_calculation
+from app.preprocessing.modules.services import services_calculation
 from iduconfig import Config
 
 config = Config()
@@ -135,7 +137,7 @@ class MessagesCalculation:
                 services_field = row.get("services")
                 if services_field:
                     services_list = [s.strip() for s in services_field.split(",") if s.strip()]
-                    services_list = self.replace_service_names(services_list, ru_service_names)
+                    services_list = services_calculation.replace_service_names(services_list, ru_service_names)
                     services_list = list(dict.fromkeys(services_list))
                     with session.no_autoflush:
                         for service_name in services_list:
@@ -220,7 +222,7 @@ class MessagesCalculation:
         Получает сообщения из ВК для групп, связанных с territory_id.
         """
         if not cutoff_date:
-            latest_date = await self.get_latest_message_date_by_territory_id(territory_id)
+            latest_date = await messages_calculation.get_latest_message_date_by_territory_id(territory_id)
             if latest_date:
                 next_day = latest_date + timedelta(days=1)
                 cutoff_date = next_day.strftime("%Y-%m-%d")
@@ -230,7 +232,7 @@ class MessagesCalculation:
 
         access_key = config.get("VK_ACCESS_KEY")
         parser = VKParser()
-        groups = await self.get_groups_by_territory_id(territory_id)
+        groups = await groups_calculation.get_groups_by_territory_id(territory_id)
         all_messages_data = []
         total_messages_count = 0
 
@@ -434,6 +436,7 @@ class MessagesCalculation:
         logger.info(f"Batch extraction done. Updated {len(updated_records)} messages.")
         return updated_records
 
+    @staticmethod
     async def get_all_messages(only_with_location: bool = False):
         async with database.session() as session:
             result = await session.execute(select(Message))
@@ -465,6 +468,7 @@ class MessagesCalculation:
             })
         return {"messages": messages_list}
 
+    @staticmethod
     async def upload_messages_func(file):
         try:
             inserted_messages = await messages_calculation.add_messages(file)
@@ -472,6 +476,7 @@ class MessagesCalculation:
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    @staticmethod
     async def collect_vk_texts_func(data):
         result = await messages_calculation.parse_VK_texts(
             territory_id=data.territory_id,
@@ -480,6 +485,7 @@ class MessagesCalculation:
         )
         return {"status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."}
 
+    @staticmethod
     async def create_emotion_func(payload):
         async with database.session() as session:
             new_emotion = Emotion(name=payload.name, emotion_weight=payload.emotion_weight)
@@ -492,6 +498,7 @@ class MessagesCalculation:
             "emotion_weight": new_emotion.emotion_weight,
         }
 
+    @staticmethod
     async def determine_emotion_for_unprocessed_messages_func():
         async with database.session() as session:
             query = select(Message).where(Message.is_processed == False)
@@ -512,6 +519,7 @@ class MessagesCalculation:
             await session.commit()
         return {"detail": f"Processed {count_updated} messages out of {total_messages}."}
 
+    @staticmethod
     async def extract_addresses_for_unprocessed_messages_func(device: str = "cpu", top: int = None, input_territory_name: str = "Ленинградская область"):
         updated_records = await messages_calculation.extract_addresses_for_unprocessed(
             device=device,
@@ -520,6 +528,7 @@ class MessagesCalculation:
         )
         return {"status": f"Extraction of addresses completed. Updated {len(updated_records)} messages."}
 
+    @staticmethod
     async def delete_all_messages_func():
         async with database.session() as session:
             await session.execute(delete(Message))

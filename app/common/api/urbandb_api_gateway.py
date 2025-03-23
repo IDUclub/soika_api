@@ -151,6 +151,7 @@ class UrbanDBAPI:
             404,
             f"Context IDs not found for project {project_id}",
             api_url,
+            None
         )
 
     async def get_context_territories(self, territory_id, project_id):

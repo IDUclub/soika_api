@@ -151,6 +151,7 @@ class ServicesCalculation:
             "processed_messages": len(messages),
         }
     
+    @staticmethod
     async def get_all_services():
         async with database.session() as session:
             result = await session.execute(select(Service))
@@ -158,6 +159,7 @@ class ServicesCalculation:
         services_list = [{"service_id": s.service_id, "name": s.name, "value_id": s.value_id} for s in services]
         return {"services": services_list}
 
+    @staticmethod
     async def get_all_message_service_pairs():
         async with database.session() as session:
             result = await session.execute(select(MessageService))
@@ -165,6 +167,7 @@ class ServicesCalculation:
         services_list = [{"message_id": s.message_id, "indicator_id": s.service_id} for s in services]
         return {"message_service_pairs": services_list}
 
+    @staticmethod
     async def extract_services_func(top: int = None):
         result = await services_calculation.extract_services_in_messages(top=top)
         return result

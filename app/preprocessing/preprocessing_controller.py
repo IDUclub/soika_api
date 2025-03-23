@@ -1,5 +1,9 @@
 from fastapi import APIRouter, UploadFile, File, Query
 from app.preprocessing.preprocessing import PreprocessingService
+from app.preprocessing.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
+from app.preprocessing.dto.territory_dto import TerritoryCreate
+from app.preprocessing.dto.emotion_dto import EmotionCreate
+from app.preprocessing.dto.indicator_dto import IndicatorCreate
 
 territories_router = APIRouter()
 groups_router = APIRouter()
@@ -15,7 +19,7 @@ async def get_territories():
     return await PreprocessingService.get_territories()
 
 @territories_router.post("/add_territory")
-async def create_territory(payload):
+async def create_territory(payload: TerritoryCreate):
     return await PreprocessingService.create_territory(payload)
 
 @territories_router.delete("/territories")
@@ -29,7 +33,7 @@ async def get_groups():
     return await PreprocessingService.get_groups()
 
 @groups_router.post("/collect_vk_groups")
-async def collect_vk_groups(data):
+async def collect_vk_groups(data: VKGroupsRequest):
     return await PreprocessingService.collect_vk_groups(data)
 
 @groups_router.delete("/groups")
@@ -51,11 +55,11 @@ async def add_messages(file: UploadFile = File(...)):
     return await PreprocessingService.add_messages(file)
 
 @messages_router.post("/collect_vk_texts")
-async def collect_vk_texts(data):
+async def collect_vk_texts(data: VKTextsRequest):
     return await PreprocessingService.collect_vk_texts(data)
 
 @messages_router.post("/add_emotions")
-async def add_emotions(payload):
+async def add_emotions(payload: EmotionCreate):
     return await PreprocessingService.add_emotions(payload)
 
 @messages_router.post("/determine_emotion")
@@ -105,7 +109,7 @@ async def get_message_indicator_pairs():
     return await PreprocessingService.get_message_indicator_pairs()
 
 @indicators_router.post("/add_indicators")
-async def add_indicators(payload):
+async def add_indicators(payload: IndicatorCreate):
     return await PreprocessingService.add_indicators(payload)
 
 @indicators_router.post("/extract_indicators")

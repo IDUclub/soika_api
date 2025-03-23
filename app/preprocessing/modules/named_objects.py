@@ -5,6 +5,7 @@ from app.common.db.database import (
 )
 from app.common.db.db_engine import database
 from app.preprocessing.modules import utils
+from app.common.exceptions.http_exception_wrapper import http_exception
 from sqlalchemy import select, delete
 from geoalchemy2.shape import to_shape
 import asyncio
@@ -34,7 +35,7 @@ class NERCalculation:
         """
         Формирует промпт для модели на основе контекста.
         """
-        logger.debug("Начало формирования промпта. Исходный context: %s", context)
+        logger.debug("Начало формирования промпта. Исходный context: ", context)
         context_str = "\n".join(context) if isinstance(context, list) else str(context)
         dict_example = {
             "name": "Юбилейный",
@@ -52,7 +53,7 @@ class NERCalculation:
             Пример итогового словаря: {dict_example}
             Если названий больше одного, сохрани словари элементами в списке через запятую [dict1, dict2, dict3]
             """
-        logger.debug("Сформированный промпт: %s", prompt)
+        logger.debug("Сформированный промпт: ", prompt)
         return prompt
 
     async def describe_async(self, context):
@@ -69,7 +70,7 @@ class NERCalculation:
         }
 
         def sync_request():
-            logger.info("Отправка запроса на %s", self.url)
+            logger.info("Отправка запроса", self.url)
             try:
                 response = requests.post(
                     self.url,
@@ -79,14 +80,14 @@ class NERCalculation:
                     verify=self.ca_cert,
                 )
                 if response.status_code == 200:
-                    logger.info("Получен успешный ответ от модели. Код: %s", response.status_code)
+                    logger.info("Получен успешный ответ от модели. Код:", response.status_code)
                     response_json = response.json()
                     return response_json.get("response", "")
                 else:
-                    logger.error("Ошибка запроса: %s, ответ: %s", response.status_code, response.text)
+                    logger.error("Ошибка запроса, ответ:", response.status_code, response.text)
                     return None
             except requests.exceptions.RequestException as e:
-                logger.error("Ошибка соединения при запросе: %s", e)
+                logger.error("Ошибка соединения при запросе", e)
                 return None
 
         loop = asyncio.get_running_loop()
@@ -95,9 +96,9 @@ class NERCalculation:
 
     async def process_write_descriptions(self, items):
         """
-        Обрабатывает список элементов items (каждый со своим 'context') асинхронно.
+        Обрабатывает список элементов items асинхронно.
         """
-        logger.info("Начало обработки описаний. Всего элементов: %s", len(items))
+        logger.info("Начало обработки описаний.", len(items))
         tasks = [self.describe_async(item["context"]) for item in items]
         results = await utils.gather_with_progress(tasks, description="В процессе")
         logger.info("Завершена обработка описаний.")
@@ -131,7 +132,7 @@ class NERCalculation:
         """
         Извлекает словарь или список словарей из строки 'response'.
         """
-        logger.debug("Начало парсинга ответа: %s", response_str)
+        logger.debug("Начало парсинга ответа: ", response_str)
         cleaned_str = re.sub(r"\.\.\.", "", response_str or "")
         cleaned_str = cleaned_str.strip()
         if not cleaned_str:
@@ -140,7 +141,7 @@ class NERCalculation:
 
         if cleaned_str.startswith("(") and cleaned_str.endswith(")"):
             cleaned_str = "[" + cleaned_str[1:-1] + "]"
-            logger.debug("Обнаружены кортежные скобки. Заменены на квадратные: %s", cleaned_str)
+            logger.debug("Обнаружены кортежные скобки. Заменены на квадратные: ", cleaned_str)
 
         if cleaned_str.startswith("[") and cleaned_str.endswith("]"):
             try:
@@ -152,7 +153,7 @@ class NERCalculation:
                     logger.warning("Ожидался список словарей, но получен другой тип данных.")
                     return {}
             except Exception as e:
-                logger.error("Ошибка при разборе списка словарей: %s", e)
+                logger.error("Ошибка при разборе списка словарей: ", e)
                 return {}
 
         match = re.search(r"(\{.*\})", cleaned_str, re.DOTALL)
@@ -167,7 +168,7 @@ class NERCalculation:
                     logger.warning("Ожидался словарь, но получен другой тип данных.")
                     return {}
             except Exception as e:
-                logger.error("Ошибка при разборе словаря: %s", e)
+                logger.error("Ошибка при разборе словаря: ", e)
                 return {}
         else:
             logger.warning("Словарь не найден в строке ответа.")
@@ -194,7 +195,7 @@ class NERCalculation:
             return data
         except Exception as e:
             error_message = str(e).lower()
-            logger.info("OSM error: %s", error_message)
+            logger.info("OSM error: ", error_message)
             return None
 
     def replace_nan_in_column(self, series: pd.Series) -> pd.Series:
@@ -338,12 +339,21 @@ class NERCalculation:
     async def process_texts(self, texts: pd.DataFrame) -> gpd.GeoDataFrame:
         """
         Основной процесс обработки DataFrame texts:
-         - отправка запросов,
-         - разделение и парсинг извлечённых данных,
-         - геокодирование и агрегирование.
+        - отправка запросов,
+        - разделение и парсинг извлечённых данных,
+        - геокодирование и агрегирование.
         """
         items = await asyncio.to_thread(ner_calculation.build_items, texts)
         descriptions = await ner_calculation.process_write_descriptions(items)
+        
+        if not descriptions or all(d is None for d in descriptions):
+            raise http_exception(
+                status_code=400,
+                msg="Ошибка соединения при запросах",
+                input_data=descriptions,
+                detail="Проверьте корректность подключения к LLM"
+            )
+        
         texts["extracted_data"] = descriptions
 
         texts = await asyncio.to_thread(ner_calculation.split_extracted_data, texts)
@@ -353,6 +363,7 @@ class NERCalculation:
 
         grouped_df = await asyncio.to_thread(ner_calculation.process_sync, texts)
         return grouped_df
+
 
     @staticmethod
     def build_data(msgs):
@@ -397,7 +408,7 @@ class NERCalculation:
                 mid = row.get("message_id")
                 msg = next((m for m in messages if m.message_id == mid), None)
                 if not msg:
-                    logger.info("No source message for message_id=%s!", mid)
+                    logger.info("No source message for message_id=!", mid)
                     continue
                 named_obj = NamedObject(
                     text_id=msg.message_id,
@@ -547,6 +558,7 @@ class NERCalculation:
             await session.commit()
         return named_objects
 
+    @staticmethod
     async def get_all_named_objects():
         async with database.session() as session:
             result = await session.execute(select(NamedObject))
@@ -568,6 +580,7 @@ class NERCalculation:
             })
         return response
 
+    @staticmethod
     async def upload_named_objects_func(file):
         try:
             named_objects = await ner_calculation.add_named_objects(file)
@@ -575,10 +588,12 @@ class NERCalculation:
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    @staticmethod
     async def extract_named_objects_func(top: int = None):
         result = await ner_calculation.extract_named_objects(top=top)
         return result
 
+    @staticmethod
     async def delete_all_named_objects_func():
         async with database.session() as session:
             await session.execute(delete(NamedObject))

@@ -44,7 +44,7 @@ def include_routers(app: FastAPI, config: Config) -> None:
     """
     Регистрирует все роутеры в приложении с префиксом из конфигурации.
     """
-    prefix = config.get("FASTAPI_PREFIX", "")
+    prefix = config.get("FASTAPI_PREFIX")
     
     app.include_router(system_router, prefix=prefix, tags=["System"])
     app.include_router(calculation_router, prefix=prefix, tags=["Analysis"])
