@@ -9,6 +9,10 @@ config = Config()
 class TownsnetAPI:
     def __init__(self):
         self.url = config.get("Townsnet_API")
+        self.session = None
+        self.handler = None
+
+    async def init(self):
         self.session = aiohttp.ClientSession()
         self.handler = APIHandler(self.session)
 

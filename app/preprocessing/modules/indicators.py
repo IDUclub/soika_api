@@ -26,7 +26,7 @@ class IndicatorsCalculation:
         """
         Формирует промпт для модели на основе текста обращения.
         """
-        logger.debug("Начало формирования промпта. Исходный context: %s", context)
+        logger.debug("Начало формирования промпта. Исходный context: ", context)
         context_str = "\n".join(context) if isinstance(context, list) else str(context)
         prompt = f"""
             Найди обсуждение показателей в тексте {context_str}. 
@@ -36,7 +36,7 @@ class IndicatorsCalculation:
             Доступность - обращение упоминает сложности с достижением объекта или сервиса в разумное время. Слишком долго или сложно добираться, слишком большое расстояние до ближайшего объекта. 
             В ответе должен быть список из упомянутых показателей в формате [ind1, ind2, ind3]. Если показатели не обсуждаются, пиши []. Не пиши ничего, кроме списка. Нужен ответ правильного формата.
             """
-        logger.debug("Сформированный промпт: %s", prompt)
+        logger.debug("Сформированный промпт: ", prompt)
         return prompt
 
     async def describe_async(self, context):
@@ -66,13 +66,13 @@ class IndicatorsCalculation:
                     return response_json.get("response", "")
                 else:
                     logger.error(
-                        "Ошибка запроса: %s, ответ: %s",
+                        "Ошибка запроса: , ответ: ",
                         response.status_code,
                         response.text,
                     )
                     return None
             except requests.exceptions.RequestException as e:
-                logger.error("Ошибка соединения при запросе: %s", e)
+                logger.error("Ошибка соединения при запросе: ", e)
                 return None
 
         result = await asyncio.to_thread(sync_request)

@@ -11,6 +11,10 @@ config = Config()
 class ValuesAPI:
     def __init__(self):
         self.url = config.get("Values_API")
+        self.session = None
+        self.handler = None
+
+    async def init(self):
         self.session = aiohttp.ClientSession()
         self.handler = APIHandler(self.session)
 

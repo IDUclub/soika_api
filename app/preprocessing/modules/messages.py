@@ -29,6 +29,7 @@ from app.preprocessing.modules import utils
 from app.preprocessing.modules.models import models_initialization
 from app.preprocessing.modules.groups import groups_calculation
 from app.preprocessing.modules.services import services_calculation
+import concurrent.futures
 from iduconfig import Config
 
 config = Config()
@@ -317,14 +318,39 @@ class MessagesCalculation:
         result = await loop.run_in_executor(models_initialization.executor, model, text)
         return result[0]["label"]
 
+    @staticmethod
+    def run_geocoding_task(osm_key, msgs, device, territory_name):
+        df = pd.DataFrame({
+            "message_id": [m.message_id for m in msgs],
+            "text": [m.text for m in msgs]
+        })
+        if df.empty:
+            return None
+        geocoder = Geocoder(
+            df=df,
+            osm_id=osm_key,
+            device=device,
+            model_path="Geor111y/flair-ner-addresses-extractor",
+            text_column_name="text",
+            city_tags={"admin_level": ["6"]},
+            territory_name=territory_name,
+            nb_workers=-1
+        )
+        logger.info(f"Started geocoding process for messages in territory '{territory_name}' (osm_id={osm_key})")
+        result_gdf = geocoder.run(group_column=None, search_for_objects=False)
+        if "message_id" not in result_gdf.columns:
+            logger.warning(f"Geocoder result has no 'message_id' column. Skipping osm_id={osm_key}.")
+            return None
+        return result_gdf.to_dict("records")
+
     async def extract_addresses_for_unprocessed(self, device: str = "cpu", top: int = None, input_territory_name: str = None) -> list[dict]:
         """
-        1) Ищет все сообщения (Message), у которых is_processed=False (ограничиваем top, если задан).
-        2) Одним запросом получает все группы (Group) для этих сообщений.
-        3) Одним запросом получает все территории (Territory) для этих групп.
-        4) Для территорий без osm_id вызывает utils.osm_geocode.
-        5) Группирует сообщения по osm_id, пакетно вызывает geocoder.run().
-        6) Обновляет поля location, geometry, is_processed (если не NaN).
+        1) Получает все сообщения (Message) с is_processed=False (ограничиваем top, если задан).
+        2) Получает группы (Group) для этих сообщений.
+        3) Если input_territory_name задан, обрабатывает все сообщения как относящиеся к этой территории.
+        4) Если input_territory_name не задан, получает уникальные территории из групп и для каждой вызывает utils.osm_geocode для получения osm_id.
+        5) Группирует сообщения по osm_id, пакетно вызывает geocoder.run() в отдельном процессе.
+        6) Обновляет поля location, geometry, is_processed.
         7) Возвращает список словарей с результатами.
         """
         async with database.session() as session:
@@ -338,103 +364,91 @@ class MessagesCalculation:
                 logger.info("No unprocessed messages found for address extraction.")
                 return []
 
-            group_ids = {m.group_id for m in messages if m.group_id is not None}
-            if not group_ids:
-                logger.info("No valid group_id found among unprocessed messages.")
-                return []
-
-            grp_query = select(Group).where(Group.group_id.in_(group_ids))
-            grp_result = await session.execute(grp_query)
-            groups = grp_result.scalars().all()
-            group_map = {g.group_id: g for g in groups}
-
-            territory_names = {g.matched_territory for g in groups if g.matched_territory}
-            if not territory_names:
-                logger.info("No territory names found in groups.")
-                return []
-
-            terr_query = select(Territory).where(Territory.name.in_(territory_names))
-            terr_result = await session.execute(terr_query)
-            territories = terr_result.scalars().all()
-            territory_map = {t.name: t for t in territories}
-
-            for t in territories:
-                if not getattr(t, "osm_id", None):
-                    logger.info(f"No osm_id in DB for territory='{t.name}'. Trying osmnx...")
-                    osm_id = await utils.osm_geocode(t.name)
-                    if osm_id:
-                        t.osm_id = osm_id
-                        logger.info(f"OSM id {t.osm_id}")
-            # await session.commit()
-
-            messages_by_osm = {}
-            for msg in messages:
-                grp = group_map.get(msg.group_id)
-                if not grp:
-                    logger.warning(f"Message {msg.message_id} has invalid group_id={msg.group_id}. Skipping.")
-                    continue
-                territory_name = grp.matched_territory
-                if not territory_name:
-                    logger.warning(f"Group {grp.group_id} has no matched_territory. Skipping message {msg.message_id}.")
-                    continue
-                terr_obj = territory_map.get(territory_name)
-                if not terr_obj:
-                    logger.warning(f"Territory '{territory_name}' not found in DB. Skipping msg={msg.message_id}.")
-                    continue
-                osm_id = getattr(terr_obj, "osm_id", None)
+            if input_territory_name:
+                osm_id = await utils.osm_geocode(input_territory_name)
                 if not osm_id:
-                    logger.warning(f"Could not determine osm_id for territory='{territory_name}'. Skipping msg={msg.message_id}.")
-                    continue
-                messages_by_osm.setdefault(osm_id, []).append(msg)
+                    logger.error(f"Could not determine osm_id for territory='{input_territory_name}'.")
+                    return []
+                messages_by_osm = {osm_id: messages}
+            else:
+                group_ids = {m.group_id for m in messages if m.group_id is not None}
+                if not group_ids:
+                    logger.info("No valid group_id found among unprocessed messages.")
+                    return []
+
+                grp_query = select(Group).where(Group.group_id.in_(group_ids))
+                grp_result = await session.execute(grp_query)
+                groups = grp_result.scalars().all()
+                group_map = {g.group_id: g for g in groups}
+
+                territory_names = {g.matched_territory for g in groups if g.matched_territory}
+                if not territory_names:
+                    logger.info("No territory names found in groups.")
+                    return []
+
+                territory_osm_ids = {}
+                for name in territory_names:
+                    osm_id = await utils.osm_geocode(name)
+                    if osm_id:
+                        territory_osm_ids[name] = osm_id
+                        logger.info(f"OSM id for territory '{name}': {osm_id}")
+                    else:
+                        logger.warning(f"Could not determine osm_id for territory '{name}'.")
+
+                messages_by_osm = {}
+                for msg in messages:
+                    grp = group_map.get(msg.group_id)
+                    if not grp:
+                        logger.warning(f"Message {msg.message_id} has invalid group_id={msg.group_id}. Skipping.")
+                        continue
+                    territory_name = grp.matched_territory
+                    if not territory_name:
+                        logger.warning(f"Group {grp.group_id} has no matched_territory. Skipping message {msg.message_id}.")
+                        continue
+                    osm_id = territory_osm_ids.get(territory_name)
+                    if not osm_id:
+                        logger.warning(f"Could not determine osm_id for territory '{territory_name}'. Skipping msg={msg.message_id}.")
+                        continue
+                    messages_by_osm.setdefault(osm_id, []).append(msg)
 
             updated_records = []
-            for osm_key, msgs in messages_by_osm.items():
-                df = await asyncio.to_thread(
-                    pd.DataFrame,
-                    {"message_id": [m.message_id for m in msgs], "text": [m.text for m in msgs]}
-                )
-                if df.empty:
-                    continue
-                geocoder = Geocoder(
-                    df=df,
-                    osm_id=osm_key,
-                    device=device,
-                    model_path="Geor111y/flair-ner-addresses-extractor",
-                    text_column_name="text",
-                    city_tags={"admin_level": ["6"]},
-                    territory_name=input_territory_name
-                )
-                result_gdf = await asyncio.to_thread(geocoder.run, group_column=None, search_for_objects=False)
-                if "message_id" not in result_gdf.columns:
-                    logger.warning(f"Geocoder result has no 'message_id' column. Skipping osm_id={osm_key}.")
-                    continue
-                records = await asyncio.to_thread(lambda: result_gdf.to_dict("records"))
-                msg_map = {m.message_id: m for m in msgs}
-                for row in records:
-                    mid = row["message_id"]
-                    loc = row.get("Location")
-                    geom_data = row.get("geometry")
-                    if pd.isna(loc) or pd.isna(geom_data):
-                        logger.debug(f"Skipping message_id={mid} due to NaN in location/geometry.")
+
+            loop = asyncio.get_running_loop()
+            with concurrent.futures.ProcessPoolExecutor() as executor:
+                tasks = {
+                    osm_key: loop.run_in_executor(executor, messages_calculation.run_geocoding_task, osm_key, msgs, device, input_territory_name or None)
+                    for osm_key, msgs in messages_by_osm.items()
+                }
+                for osm_key, future in tasks.items():
+                    records = await future
+                    if not records:
                         continue
-                    msg_obj = msg_map.get(mid)
-                    if not msg_obj:
-                        continue
-                    msg_obj.location = loc
-                    if isinstance(geom_data, Point):
-                        msg_obj.geometry = utils.to_ewkt(geom_data, srid=4326)
-                    else:
-                        msg_obj.geometry = None
-                    msg_obj.is_processed = True
-                    updated_records.append({
-                        "message_id": mid,
-                        "osm_id": osm_key,
-                        "location": str(loc),
-                        "geometry": msg_obj.geometry,
-                    })
+                    msg_map = {m.message_id: m for m in messages_by_osm[osm_key]}
+                    for row in records:
+                        mid = row["message_id"]
+                        loc = row.get("Location")
+                        geom_data = row.get("geometry")
+                        if pd.isna(loc) or pd.isna(geom_data):
+                            logger.debug(f"Skipping message_id={mid} due to NaN in location/geometry.")
+                            continue
+                        msg_obj = msg_map.get(mid)
+                        if not msg_obj:
+                            continue
+                        msg_obj.location = loc
+                        if isinstance(geom_data, Point):
+                            msg_obj.geometry = utils.to_ewkt(geom_data, srid=4326)
+                        else:
+                            msg_obj.geometry = None
+                        msg_obj.is_processed = True
+                        updated_records.append({
+                            "message_id": mid,
+                            "osm_id": osm_key,
+                            "location": str(loc),
+                            "geometry": msg_obj.geometry,
+                        })
             await session.commit()
-        logger.info(f"Batch extraction done. Updated {len(updated_records)} messages.")
-        return updated_records
+            logger.info(f"Batch extraction done. Updated {len(updated_records)} messages.")
+            return updated_records
 
     @staticmethod
     async def get_all_messages(only_with_location: bool = False):

@@ -4,6 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.preprocessing.modules.models import models_initialization
+from app.common.api.effects_api_gateway import effects_api
+from app.common.api.townsnet_api_gateway import townsnet_api
+from app.common.api.urbandb_api_gateway import urban_db_api
+from app.common.api.values_api_gateway import values_api
 from fastapi.responses import JSONResponse
 from fastapi import Request
 from starlette.responses import RedirectResponse
@@ -16,7 +20,25 @@ setup_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await models_initialization.init_models()
+
+    await urban_db_api.init() 
+    app.state.urban_db_api = urban_db_api
+
+    await effects_api.init() 
+    app.state.effects_api = effects_api
+
+    await townsnet_api.init() 
+    app.state.townsnet_api = townsnet_api
+
+    await values_api.init() 
+    app.state.values_api = values_api
+
     yield
+
+    await app.state.urban_db_api.session.close()
+    await app.state.effects_api.session.close()
+    await app.state.townsnet_api.session.close()
+    await app.state.values_api.session.close()
 
 app = FastAPI(
     title="SOIKA API",

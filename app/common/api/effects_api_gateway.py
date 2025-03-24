@@ -9,6 +9,10 @@ config = Config()
 class EffectsAPI:
     def __init__(self):
         self.url = config.get("Effects_API")
+        self.session = None
+        self.handler = None
+
+    async def init(self):
         self.session = aiohttp.ClientSession()
         self.handler = APIHandler(self.session)
 
