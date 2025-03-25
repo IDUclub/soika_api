@@ -3,18 +3,18 @@ import pandas as pd
 import aiohttp
 from iduconfig import Config
 from app.common.api.api_error_handler import APIHandler
-
-config = Config()
+from app.dependencies import config
 
 class EffectsAPI:
-    def __init__(self):
+    def __init__(self, config: Config):
         self.url = config.get("Effects_API")
         self.session = None
         self.handler = None
+        self.config = config
 
     async def init(self):
         self.session = aiohttp.ClientSession()
-        self.handler = APIHandler(self.session)
+        self.handler = APIHandler()
 
     async def get_evaluated_territories(self, scenario_id: int, token: str):
         api_url = f"{self.url}/effects/provision_data?project_scenario_id={scenario_id}&scale_type=Контекст"
@@ -28,4 +28,4 @@ class EffectsAPI:
         effects = pd.DataFrame(json_data)
         return effects
 
-effects_api = EffectsAPI()
+effects_api = EffectsAPI(config)

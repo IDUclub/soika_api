@@ -8,18 +8,18 @@ import pandas as pd
 from iduconfig import Config
 from app.common.exceptions.http_exception_wrapper import http_exception
 from app.common.api.api_error_handler import APIHandler
-
-config = Config()
+from app.dependencies import config
 
 class UrbanDBAPI:
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.url = config.get("UrbanDB_API")
         self.session = None
         self.handler = None
 
     async def init(self):
         self.session = aiohttp.ClientSession()
-        self.handler = APIHandler(self.session)
+        self.handler = APIHandler()
 
     async def get_child_territories(self, territory_id: int, page_num: int, page_size: int):
         """
@@ -105,8 +105,8 @@ class UrbanDBAPI:
             geometry="geometry",
             crs=4326,
         )
-        territory["admin_center"] = territory["admin_center"].apply(
-            lambda x: x.get("id") if isinstance(x, dict) else None
+        territory["admin_center"] = await asyncio.to_thread(
+            lambda: territory["admin_center"].apply(lambda x: x.get("id") if isinstance(x, dict) else None)
         )
         return territory
 
@@ -179,4 +179,4 @@ class UrbanDBAPI:
         )
         return context_territories
 
-urban_db_api = UrbanDBAPI()
+urban_db_api = UrbanDBAPI(config)

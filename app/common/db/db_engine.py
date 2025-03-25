@@ -3,11 +3,12 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from iduconfig import Config
 from sqlalchemy.sql import Executable
-
-config = Config()
+from loguru import logger
+from app.dependencies import config
 
 class DatabaseEngine:
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.url = URL.create(
             config.get("DB_ENGINE"),
             username=config.get("DB_USERNAME"),
@@ -28,6 +29,13 @@ class DatabaseEngine:
 
     async def execute_query(self, query: Executable):
         async with self.session() as session:
-            return await session.execute(query)
+            try:
+                result = await session.execute(query)
+                await session.commit()
+                return result
+            except Exception as e:
+                await session.rollback()
+                logger.exception("Ошибка выполнения запроса: {}", query)
+                raise e
         
-database = DatabaseEngine()
+database = DatabaseEngine(config)

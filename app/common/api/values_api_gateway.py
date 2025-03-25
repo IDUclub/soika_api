@@ -5,18 +5,18 @@ import aiohttp
 from iduconfig import Config
 from app.common.exceptions.http_exception_wrapper import http_exception
 from app.common.api.api_error_handler import APIHandler
-
-config = Config()
+from app.dependencies import config
 
 class ValuesAPI:
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.url = config.get("Values_API")
         self.session = None
         self.handler = None
 
     async def init(self):
         self.session = aiohttp.ClientSession()
-        self.handler = APIHandler(self.session)
+        self.handler = APIHandler()
 
     async def get_value_data(self, territory_id: int):
         """
@@ -51,4 +51,4 @@ class ValuesAPI:
 
         return df_melted["indicator"]
 
-values_api = ValuesAPI()
+values_api = ValuesAPI(config)

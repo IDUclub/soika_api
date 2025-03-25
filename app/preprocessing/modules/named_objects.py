@@ -21,11 +21,12 @@ import csv
 from io import StringIO
 import re
 from iduconfig import Config
-
-config = Config()
+import shapely.wkt
+from app.dependencies import config
 
 class NERCalculation:
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.url = config.get("GPU_URL")
         self.client_cert = config.get("GPU_CLIENT_CERTIFICATE")
         self.client_key = config.get("GPU_CLIENT_KEY")
@@ -80,7 +81,7 @@ class NERCalculation:
                     verify=self.ca_cert,
                 )
                 if response.status_code == 200:
-                    logger.info("Получен успешный ответ от модели. Код:", response.status_code)
+                    logger.info("Получен успешный ответ от модели.", response.status_code)
                     response_json = response.json()
                     return response_json.get("response", "")
                 else:
@@ -238,103 +239,127 @@ class NERCalculation:
     @staticmethod
     def build_items(df):
         return [{"context": row["text"]} for _, row in df.iterrows()]
+    
+    @staticmethod
+    def safe_to_geometry(val):
+        if val is None:
+            return None
+        if isinstance(val, str):
+            return shapely.wkt.loads(val)
+        return val
 
     @staticmethod
-    def process_sync(df):
-            named_objects = df.explode("response")
-            named_objects = named_objects[["message_id", "text", "Location", "geometry", "logic", "response"]]
-            named_objects["object_name"] = named_objects["response"].map(lambda x: x.get("name", None))
-            named_objects["object_location"] = named_objects["response"].map(lambda x: x.get("location", None))
-            named_objects["object_description"] = named_objects["response"].map(lambda x: x.get("notes", None))
-            named_objects.rename(columns={"geometry": "street_geometry"}, inplace=True)
-            named_objects["query"] = named_objects["object_name"] + ", " + named_objects["object_location"]
-            named_objects["query_result"] = named_objects["query"].progress_map(
-                lambda x: utils.osm_geocode(x, return_osm_id_only=False)
-            )
-            if len(named_objects["query_result"]) > 0:
-                logger.info("Data from OSM collected")
-                parsed_df = pd.json_normalize(named_objects.query_result)
-                parsed_df = parsed_df.drop(
-                    columns=[
-                        "bbox_north",
-                        "bbox_south",
-                        "bbox_east",
-                        "bbox_west",
-                        "lat",
-                        "lon",
-                    ],
-                    errors="ignore",
-                )
-                parsed_df["geometry"] = (
-                    parsed_df["geometry"].to_crs(3857).centroid.to_crs(4326)
-                )
-                named_objects = pd.concat([named_objects.reset_index(drop=True), parsed_df], axis=1)
-                named_objects["geometry"] = named_objects["geometry"].fillna(
-                    gpd.GeoSeries.from_wkt(named_objects["street_geometry"])
-                )
-            else:
-                logger.info("No OSM data found")
-                named_objects["geometry"] = named_objects["street_geometry"]
-                named_objects["class"] = None
-                named_objects["type"] = None
-                named_objects["osm_id"] = None
-                named_objects["display_name"] = None
+    async def process_async(df):
+        named_objects = df.explode("response")
+        named_objects = named_objects[["message_id", "text", "Location", "geometry", "logic", "response"]]
+        named_objects["object_name"] = named_objects["response"].map(lambda x: x.get("name", None))
+        named_objects["object_location"] = named_objects["response"].map(lambda x: x.get("location", None))
+        named_objects["object_description"] = named_objects["response"].map(lambda x: x.get("notes", None))
+        named_objects.rename(columns={"geometry": "street_geometry"}, inplace=True)
+        named_objects["query"] = named_objects["object_name"] + ", " + named_objects["object_location"]
+        
+        queries = named_objects["query"].tolist()
+        tasks = [utils.osm_geocode(query, return_osm_id_only=False) for query in queries]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        named_objects["query_result"] = results
 
-            named_objects.drop(
+        if len(named_objects["query_result"]) > 0:
+            logger.info("Data from OSM collected")
+            parsed_df = pd.json_normalize(named_objects.query_result)
+            parsed_df = parsed_df.drop(
                 columns=[
-                    "response",
-                    "object_location",
-                    "index",
-                    "logic",
-                    "query",
-                    "place_id",
-                    "query_result",
-                    "street_geometry",
-                    "osm_type",
-                    "importance",
-                    "place_rank",
-                    "addresstype",
-                    "name",
+                    "bbox_north",
+                    "bbox_south",
+                    "bbox_east",
+                    "bbox_west",
+                    "lat",
+                    "lon",
                 ],
-                inplace=True,
                 errors="ignore",
             )
-            named_objects.rename(
-                columns={
-                    "Location": "street_location",
-                    "class": "osm_class",
-                    "type": "osm_type",
-                    "display_name": "osm_name",
-                    "count": "message_count",
-                },
-                inplace=True,
+            
+            parsed_df["geometry"] = parsed_df["geometry"].apply(ner_calculation.safe_to_geometry)
+            named_objects = pd.concat([named_objects.reset_index(drop=True), parsed_df], axis=1)
+            named_objects["geometry"] = named_objects["geometry"].fillna(
+                gpd.GeoSeries.from_wkt(named_objects["street_geometry"])
             )
-            named_objects = gpd.GeoDataFrame(named_objects, geometry="geometry").set_crs(4326)
-            named_objects = named_objects[~named_objects["osm_type"].isin(
-                [
-                    "administrative",
-                    "city",
-                    "government",
-                    "town",
-                    "townhall",
-                    "courthouse",
-                    "quarter",
-                ]
-            )]
-            logger.info("Named objects processed")
-            grouped_df = named_objects.groupby(["geometry", "object_name"]).agg(ner_calculation.unique_list)
-            group_counts = named_objects.groupby(["geometry", "object_name"]).size().rename("count")
-            grouped_df = grouped_df.join(group_counts)
-            grouped_df = gpd.GeoDataFrame(grouped_df, geometry="geometry").set_crs(4326)
-            logger.info("Named objects grouped")
-            grouped_df["osm_id"] = ner_calculation.replace_nan_in_column(grouped_df["osm_id"])
-            grouped_df["osm_class"] = ner_calculation.replace_nan_in_column(grouped_df["osm_class"])
-            grouped_df["osm_type"] = ner_calculation.replace_nan_in_column(grouped_df["osm_type"])
-            grouped_df["osm_name"] = ner_calculation.replace_nan_in_column(grouped_df["osm_name"])
-            grouped_df["osm_tag"] = grouped_df.apply(ner_calculation.combine_tags, axis=1)
-            grouped_df.drop(columns=["osm_class", "osm_type"], inplace=True, errors="ignore")
-            grouped_df = grouped_df[~grouped_df.object_name.isin(["Александр Дрозденко", "Игорь Самохин"])]
-            return grouped_df
+            named_objects.drop(columns=['street_geometry'], inplace=True)
+            named_objects.dropna(subset='geometry', inplace=True)
+            named_objects = gpd.GeoDataFrame(named_objects, geometry='geometry', crs=4326)
+            named_objects["geometry"] = (
+                    named_objects["geometry"].to_crs(3857).centroid.to_crs(4326)
+                )
+        else:
+            logger.info("No OSM data found")
+            named_objects["geometry"] = named_objects["street_geometry"]
+            named_objects["class"] = None
+            named_objects["type"] = None
+            named_objects["osm_id"] = None
+            named_objects["display_name"] = None
+
+        named_objects.drop(
+            columns=[
+                "response",
+                "object_location",
+                "index",
+                "logic",
+                "query",
+                "place_id",
+                "query_result",
+                "street_geometry",
+                "osm_type",
+                "importance",
+                "place_rank",
+                "addresstype",
+                "name",
+            ],
+            inplace=True,
+            errors="ignore",
+        )
+        named_objects.rename(
+            columns={
+                "Location": "street_location",
+                "class": "osm_class",
+                "type": "osm_type",
+                "display_name": "osm_name",
+                "count": "message_count",
+            },
+            inplace=True,
+        )
+        
+        #named_objects = gpd.GeoDataFrame(named_objects, geometry="geometry").set_crs(4326)
+        named_objects = named_objects[~named_objects["osm_type"].isin(
+            [
+                "administrative",
+                "city",
+                "government",
+                "town",
+                "townhall",
+                "courthouse",
+                "quarter",
+                "state"
+            ]
+        )]
+        logger.info("Named objects processed")
+        
+        grouped_df = named_objects.groupby(["geometry", "object_name"]).agg(ner_calculation.unique_list)
+        group_counts = named_objects.groupby(["geometry", "object_name"]).size().rename("count")
+        grouped_df = grouped_df.join(group_counts).reset_index()
+        
+        grouped_df = gpd.GeoDataFrame(grouped_df, geometry="geometry").set_crs(4326)
+        logger.info("Named objects grouped")
+        
+        grouped_df["osm_id"] = ner_calculation.replace_nan_in_column(grouped_df["osm_id"])
+        
+        grouped_df["osm_class"] = ner_calculation.replace_nan_in_column(grouped_df["osm_class"])
+        grouped_df["osm_type"] = ner_calculation.replace_nan_in_column(grouped_df["osm_type"])
+        grouped_df["osm_name"] = ner_calculation.replace_nan_in_column(grouped_df["osm_name"])
+        grouped_df["osm_tag"] = grouped_df.apply(ner_calculation.combine_tags, axis=1)
+        grouped_df["object_description"] = grouped_df["object_description"].map(lambda x: '; '.join(x))
+        grouped_df.drop(columns=["osm_class", "osm_type"], inplace=True, errors="ignore")
+        grouped_df = grouped_df[~grouped_df.object_name.isin(["Александр Дрозденко", "Игорь Самохин"])]
+        
+        return grouped_df
     
     async def process_texts(self, texts: pd.DataFrame) -> gpd.GeoDataFrame:
         """
@@ -361,7 +386,7 @@ class NERCalculation:
         texts["response"] = texts["response"].map(ner_calculation.fix_response)
         texts = texts[texts["response"].map(lambda x: len(x)) > 0]
 
-        grouped_df = await asyncio.to_thread(ner_calculation.process_sync, texts)
+        grouped_df = await ner_calculation.process_async(texts)
         return grouped_df
 
 
@@ -379,11 +404,11 @@ class NERCalculation:
     
     async def extract_named_objects(self, top: int = None) -> dict:
         """
-        1) Ищет все сообщения, у которых is_processed=False (ограничение top, если задан).
+        1) Ищет все сообщения, у которых is_processed=False (с ограничением top, если задано).
         2) Формирует DataFrame (message_id, text, Location, geometry=WKT).
-        3) Вызывает self.process_texts(df) -> GeoDataFrame.
-        4) Пробегается по результату, создаёт записи в named_object.
-        5) Коммитит и возвращает информацию о числе добавленных записей.
+        3) Вызывает process_texts(df) для получения GeoDataFrame с извлечёнными именованными объектами.
+        4) Для каждого результата создаёт NamedObject и восстанавливает связи с исходными сообщениями через MessageNamedObject.
+        5) Коммитит изменения и возвращает информацию о числе добавленных записей.
         """
         async with database.session() as session:
             query = select(Message).where(Message.is_processed == False)
@@ -396,33 +421,112 @@ class NERCalculation:
                     "detail": "No unprocessed messages found.",
                     "processed_messages": 0,
                 }
+
             df = await asyncio.to_thread(ner_calculation.build_data, messages)
-            result_gdf = await self.process_texts(df)
+            result_gdf = await ner_calculation.process_texts(df)
             if result_gdf.empty:
                 return {
                     "detail": "NER extraction returned no named objects.",
                     "processed_messages": len(messages),
                 }
+
             named_objects_created = 0
+            logger.info(f"GeoDataFrame:\n{result_gdf}")
+            logger.info(f"Колонки: {result_gdf.columns}")
+            logger.info(f"message_id: {result_gdf.message_id}")
+
             for _, row in result_gdf.iterrows():
-                mid = row.get("message_id")
-                msg = next((m for m in messages if m.message_id == mid), None)
-                if not msg:
-                    logger.info("No source message for message_id=!", mid)
+                mid_list = row.get("message_id")
+                if not mid_list or not isinstance(mid_list, list):
+                    logger.info("Поле message_id отсутствует или не является списком, пропускаем строку.")
                     continue
+
+                primary_mid = mid_list[0]
+                msg = next((m for m in messages if m.message_id == primary_mid), None)
+                if not msg:
+                    logger.info(f"Не найдено исходное сообщение для message_id: {primary_mid}")
+                    continue
+
+                object_name = row.get("object_name")
+
+                raw_obj_desc = row.get("object_description")
+                if isinstance(raw_obj_desc, list):
+                    object_description = "; ".join(map(str, raw_obj_desc))
+                else:
+                    object_description = str(raw_obj_desc) if raw_obj_desc is not None else None
+
+                raw_osm_id = row.get("osm_id")
+                osm_id = 0
+                if raw_osm_id:
+                    if isinstance(raw_osm_id, list):
+                        first_osm = raw_osm_id[0] if raw_osm_id else ""
+                    else:
+                        first_osm = raw_osm_id
+                    if first_osm in [None, "", ""]:
+                        osm_id = 0
+                    else:
+                        try:
+                            osm_id = int(float(first_osm))
+                        except Exception:
+                            osm_id = 0
+
+                raw_osm_name = row.get("osm_name")
+                if raw_osm_name:
+                    if isinstance(raw_osm_name, list):
+                        accurate_location = str(raw_osm_name[0]) if raw_osm_name else ""
+                    else:
+                        accurate_location = str(raw_osm_name)
+                else:
+                    accurate_location = None
+
+                count = row.get("count")
+
+                osm_tag = row.get("osm_tag")
+                raw_osm_tag = row.get("osm_tag")
+                if raw_osm_tag:
+                    if isinstance(raw_osm_tag, list):
+                        osm_tag = str(raw_osm_tag[0]) if raw_osm_tag else ""
+                    else:
+                        osm_tag = str(raw_osm_tag)
+                else:
+                    osm_tag = None
+
+                estimated_location = msg.location
+
+                text_id = primary_mid
+
+                geom = row.get("geometry")
+                if geom:
+                    ewkt_geometry = utils.to_ewkt(geom)
+                else:
+                    raise Exception("Отсутствует значение геометрии")
+
                 named_obj = NamedObject(
-                    text_id=msg.message_id,
-                    object_description=row.get("object_description"),
-                    osm_id=row.get("osm_id"),
-                    osm_tag=row.get("osm_tag"),
-                    count=row.get("count", 1),
-                    accurate_location=row.get("osm_name"),
-                    estimated_location=msg.location,
-                    geometry=row.get("geometry"),
+                    object_name=object_name,
+                    estimated_location=estimated_location,
+                    object_description=object_description,
+                    osm_id=osm_id,
+                    accurate_location=accurate_location,
+                    count=count,
+                    text_id=text_id,
+                    osm_tag=osm_tag,
+                    geometry=ewkt_geometry,
                     is_processed=False,
                 )
                 session.add(named_obj)
+                await session.flush() 
+
+                for msg_id in mid_list:
+                    if any(m.message_id == msg_id for m in messages):
+                        link = MessageNamedObject(
+                            message_id=msg_id,
+                            named_object_id=named_obj.named_object_id
+                        )
+                        session.add(link)
+                    else:
+                        logger.info(f"Сообщение с id {msg_id} не найдено в исходном наборе")
                 named_objects_created += 1
+
             await session.commit()
         return {
             "detail": f"Created {named_objects_created} named_object records.",
@@ -601,5 +705,5 @@ class NERCalculation:
         return {"detail": "All named objects deleted successfully"}
 
 
-ner_calculation = NERCalculation()
+ner_calculation = NERCalculation(config)
     

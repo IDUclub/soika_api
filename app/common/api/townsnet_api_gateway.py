@@ -3,18 +3,18 @@ import aiohttp
 import geopandas as gpd
 from iduconfig import Config
 from app.common.api.api_error_handler import APIHandler
-
-config = Config()
+from app.dependencies import config
 
 class TownsnetAPI:
-    def __init__(self):
+    def __init__(self, config: Config):
         self.url = config.get("Townsnet_API")
         self.session = None
         self.handler = None
+        self.config = config
 
     async def init(self):
         self.session = aiohttp.ClientSession()
-        self.handler = APIHandler(self.session)
+        self.handler = APIHandler()
 
     async def get_evaluated_territories(self, project_id: int, token: str):
         api_url = f"{self.url}/provision/{project_id}/get_project_evaluation"
@@ -28,4 +28,4 @@ class TownsnetAPI:
         territories = gpd.GeoDataFrame.from_features(geojson_data["features"])
         return territories
 
-townsnet_api = TownsnetAPI()
+townsnet_api = TownsnetAPI(config)

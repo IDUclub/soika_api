@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Query
+from fastapi import status
 from app.preprocessing.preprocessing import PreprocessingService
 from app.preprocessing.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
 from app.preprocessing.dto.territory_dto import TerritoryCreate
@@ -18,7 +19,7 @@ services_router = APIRouter()
 async def get_territories():
     return await PreprocessingService.get_territories()
 
-@territories_router.post("/add_territory")
+@territories_router.post("/add_territory", status_code=status.HTTP_201_CREATED)
 async def create_territory(payload: TerritoryCreate):
     return await PreprocessingService.create_territory(payload)
 
@@ -32,7 +33,7 @@ async def delete_territories():
 async def get_groups():
     return await PreprocessingService.get_groups()
 
-@groups_router.post("/collect_vk_groups")
+@groups_router.post("/collect_vk_groups", status_code=status.HTTP_201_CREATED)
 async def collect_vk_groups(data: VKGroupsRequest):
     return await PreprocessingService.collect_vk_groups(data)
 
@@ -45,28 +46,28 @@ async def delete_groups():
 @messages_router.get("/get_messages")
 async def get_messages(
     only_with_location: bool = Query(
-        False, description="Возвращать только записи с непустыми geometry и location"
+        False, description="Возвращать только записи с имеющимися geometry и location"
     )
 ):
     return await PreprocessingService.get_messages(only_with_location)
 
-@messages_router.post("/add_messages")
+@messages_router.post("/add_messages", status_code=status.HTTP_201_CREATED)
 async def add_messages(file: UploadFile = File(...)):
     return await PreprocessingService.add_messages(file)
 
-@messages_router.post("/collect_vk_texts")
+@messages_router.post("/collect_vk_texts", status_code=status.HTTP_201_CREATED)
 async def collect_vk_texts(data: VKTextsRequest):
     return await PreprocessingService.collect_vk_texts(data)
 
-@messages_router.post("/add_emotions")
+@messages_router.post("/add_emotions", status_code=status.HTTP_201_CREATED)
 async def add_emotions(payload: EmotionCreate):
     return await PreprocessingService.add_emotions(payload)
 
-@messages_router.post("/determine_emotion")
+@messages_router.post("/determine_emotion", status_code=status.HTTP_201_CREATED)
 async def determine_emotion():
     return await PreprocessingService.determine_emotion()
 
-@messages_router.post("/extract_addresses")
+@messages_router.post("/extract_addresses", status_code=status.HTTP_201_CREATED)
 async def extract_addresses(
     device: str = "cpu",
     top: int = Query(None, description="Сколько сообщений обрабатывать (None = все)"),
@@ -84,11 +85,11 @@ async def delete_messages():
 async def named_objects():
     return await PreprocessingService.get_named_objects()
 
-@named_objects_router.post("/add_named_objects")
+@named_objects_router.post("/add_named_objects", status_code=status.HTTP_201_CREATED)
 async def add_named_objects(file: UploadFile = File(...)):
     return await PreprocessingService.add_named_objects(file)
 
-@named_objects_router.post("/extract_named_objects")
+@named_objects_router.post("/extract_named_objects", status_code=status.HTTP_201_CREATED)
 async def extract_named_objects(
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
 ):
@@ -108,11 +109,11 @@ async def get_indicators():
 async def get_message_indicator_pairs():
     return await PreprocessingService.get_message_indicator_pairs()
 
-@indicators_router.post("/add_indicators")
+@indicators_router.post("/add_indicators", status_code=status.HTTP_201_CREATED)
 async def add_indicators(payload: IndicatorCreate):
     return await PreprocessingService.add_indicators(payload)
 
-@indicators_router.post("/extract_indicators")
+@indicators_router.post("/extract_indicators", status_code=status.HTTP_201_CREATED)
 async def extract_indicators(
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
 ):
@@ -132,7 +133,7 @@ async def get_services():
 async def get_message_service_pairs():
     return await PreprocessingService.get_message_service_pairs()
 
-@services_router.post("/extract_services")
+@services_router.post("/extract_services", status_code=status.HTTP_201_CREATED)
 async def extract_services(
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
 ):

@@ -12,11 +12,11 @@ from sqlalchemy import select, delete
 from app.common.exceptions.http_exception_wrapper import http_exception
 from app.preprocessing.modules import utils
 from iduconfig import Config
-
-config = Config()
+from app.dependencies import config
 
 class IndicatorsCalculation:
-    def __init__(self):
+    def __init__(self, config: Config):
+        self.config = config
         self.url = config.get("GPU_URL")
         self.client_cert = config.get("GPU_CLIENT_CERTIFICATE")
         self.client_key = config.get("GPU_CLIENT_KEY")
@@ -228,4 +228,4 @@ class IndicatorsCalculation:
             await session.commit()
         return {"detail": "All indicators deleted"}
 
-indicators_calculation = IndicatorsCalculation()
+indicators_calculation = IndicatorsCalculation(config)

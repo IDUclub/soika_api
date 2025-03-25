@@ -15,15 +15,15 @@ from app.common.storage import caching_service
 from app.common.storage.implementations.cacheable_bytes import CacheableBytes
 from iduconfig import Config
 from datetime import datetime
-
-config = Config()
+from app.dependencies import config
 
 class DataGetter:
     """
     This class contains functions for getting layers for local database.
     """
-
-    GENERAL_REQ_TIMEOUT = 360
+    def __init__(self, config: Config):
+        self.config = config
+        GENERAL_REQ_TIMEOUT = 360
 
     @staticmethod
     def get_pickle(object_name: str, received_bytes: io.BytesIO | None) -> DataFrame:
@@ -110,3 +110,5 @@ class DataGetter:
 
             return received_bytes
         return None
+
+data_getter = DataGetter(config)

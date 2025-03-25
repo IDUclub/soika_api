@@ -1,9 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from starlette.responses import FileResponse
-from iduconfig import Config
+from app.dependencies import config
 
-
-config = Config()
 system_router = APIRouter()
 
 @system_router.get("/logs")

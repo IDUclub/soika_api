@@ -31,10 +31,12 @@ from app.preprocessing.modules.groups import groups_calculation
 from app.preprocessing.modules.services import services_calculation
 import concurrent.futures
 from iduconfig import Config
-
-config = Config()
+from app.dependencies import config
 
 class MessagesCalculation:
+    def __init__(self, config: Config):
+        self.config = config
+
     async def add_messages(self, file: UploadFile):
         """
         Обработка CSV-файла для добавления сообщений в базу данных.
@@ -550,4 +552,4 @@ class MessagesCalculation:
         return {"detail": "All messages deleted"}
 
 
-messages_calculation = MessagesCalculation()
+messages_calculation = MessagesCalculation(config)

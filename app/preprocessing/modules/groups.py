@@ -1,19 +1,19 @@
 import asyncio
 import requests
 import pandas as pd
-from app.common.db.database import (
-    Territory,
-    Group,
-    Territory,
-)
-from app.common.db.db_engine import database
 from sqlalchemy import select, delete
-from app.common.exceptions.http_exception_wrapper import http_exception
-from iduconfig import Config
 
-config = Config()
+from iduconfig import Config
+from app.common.db.database import Territory, Group
+from app.common.db.db_engine import database
+from app.common.exceptions.http_exception_wrapper import http_exception
+from app.dependencies import config
+
 
 class GroupsCalculation:
+    def __init__(self, config: Config):
+        self.config = config
+
     @staticmethod
     def process_vk_groups_df(data, territory_name):
             df = pd.DataFrame(data["response"]["items"])[["id", "name", "screen_name"]]
@@ -114,4 +114,4 @@ class GroupsCalculation:
             await session.commit()
         return {"detail": "All groups deleted"}
     
-groups_calculation = GroupsCalculation()
+groups_calculation = GroupsCalculation(config)

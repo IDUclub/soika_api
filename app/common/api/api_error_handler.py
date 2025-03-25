@@ -3,17 +3,14 @@ from loguru import logger
 from app.common.exceptions.http_exception_wrapper import http_exception
 
 class APIHandler:
-    def __init__(self, session: aiohttp.ClientSession = None):
-        self.session = session
+    @staticmethod
+    async def get_session(session: aiohttp.ClientSession = None) -> aiohttp.ClientSession:
+        return session if session is not None else aiohttp.ClientSession()
 
-    async def ensure_session(self):
-        if self.session is None:
-            self.session = aiohttp.ClientSession()
-
-    async def request(self, method: str, url: str, **kwargs):
-        await self.ensure_session()
+    async def request(self, method: str, url: str, session: aiohttp.ClientSession = None, **kwargs):
+        current_session = await self.get_session(session)
         logger.info(f"Making {method} request to URL: {url}")
-        async with self.session.request(method, url, **kwargs) as response:
+        async with current_session.request(method, url, **kwargs) as response:
             if response.status in (200, 201):
                 try:
                     data = await response.json()
@@ -28,12 +25,14 @@ class APIHandler:
                     )
             else:
                 logger.error(f"Request to {url} failed with status {response.status}")
+                detail = await response.text()
                 raise http_exception(
                     response.status,
                     f"Request failed with status: {response.status}",
-                    url
+                    url,
+                    detail
                 )
 
-    async def close(self):
-        if self.session:
-            await self.session.close()
+    @staticmethod
+    async def close_session(session: aiohttp.ClientSession):
+        await session.close()

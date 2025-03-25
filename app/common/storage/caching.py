@@ -2,11 +2,12 @@ from pathlib import Path
 from datetime import datetime
 from iduconfig import Config
 from app.common.storage.interfaces import Cacheable
+from app.dependencies import config
 from app.common.exceptions.http_exception_wrapper import http_exception
-config = Config()
 
 class CachingService:
-    def __init__(self, cache_path: Path):
+    def __init__(self, cache_path: Path, config: Config):
+        self.config = config
         self.cache_actuality_hours = int(config.get("CACHE_ACTUALITY_HOURS"))
         self.cache_path = cache_path
         self.cache_path.mkdir(parents=True, exist_ok=True)
@@ -69,4 +70,4 @@ class CachingService:
         return actual_filename
 
 
-caching_service = CachingService(Path().absolute() / "__soika_cache__")
+caching_service = CachingService(Path().absolute() / "__soika_cache__", config)

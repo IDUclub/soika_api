@@ -3,9 +3,7 @@ Constants module provides constants in dictionary format for routing input api v
 """
 
 from app.common.storage.implementations.disposable_json import DisposableJSON
-from iduconfig import Config
-
-config = Config()
+from app.dependencies import config
 
 bucket_name = config.get("FILESERVER_BUCKET_NAME")
 constants_name = config.get("FILESERVER_CONSTANTS_NAME")

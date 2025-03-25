@@ -1,5 +1,6 @@
 from fastapi import FastAPI
-from app.dependencies import setup_logger, include_routers
+from app.dependencies import setup_logger
+from app.dependencies import config
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -8,14 +9,23 @@ from app.common.api.effects_api_gateway import effects_api
 from app.common.api.townsnet_api_gateway import townsnet_api
 from app.common.api.urbandb_api_gateway import urban_db_api
 from app.common.api.values_api_gateway import values_api
+from app.risk_calculation.social_risk_controller import calculation_router
+from app.preprocessing.preprocessing_controller import (
+    territories_router,
+    groups_router,
+    messages_router,
+    named_objects_router,
+    indicators_router,
+    services_router
+)
+from app.common.system_controller import system_router
 from fastapi.responses import JSONResponse
 from fastapi import Request
 from starlette.responses import RedirectResponse
 from loguru import logger
 from iduconfig import Config
 
-config = Config()
-setup_logger()
+setup_logger(config)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -56,6 +66,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def include_routers(app: FastAPI, config: Config) -> None:
+    """
+    Регистрирует все роутеры в приложении с префиксом из конфигурации.
+    """
+    prefix = config.get("FASTAPI_PREFIX")
+    
+    app.include_router(system_router, prefix=prefix, tags=["System"])
+    app.include_router(calculation_router, prefix=prefix, tags=["Analysis"])
+    app.include_router(territories_router, prefix=prefix, tags=["Territories"])
+    app.include_router(groups_router, prefix=prefix, tags=["Groups"])
+    app.include_router(messages_router, prefix=prefix, tags=["Messages"])
+    app.include_router(named_objects_router, prefix=prefix, tags=["Named objects"])
+    app.include_router(indicators_router, prefix=prefix, tags=["Indicators"])
+    app.include_router(services_router, prefix=prefix, tags=["Services"])
+
 include_routers(app, config)
 
 app.mount(
@@ -67,7 +92,11 @@ app.mount(
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.exception("Unhandled error occurred")
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    error_message = str(exc)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"error: {error_message}"}
+    )
 
 @app.get("/", include_in_schema=False)
 async def docs_redirect():
