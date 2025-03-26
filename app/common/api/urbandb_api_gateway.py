@@ -21,21 +21,20 @@ class UrbanDBAPI:
         self.session = aiohttp.ClientSession()
         self.handler = APIHandler()
 
+    async def close(self):
+        if self.session:
+            await self.handler.close_session(self.session)
+            self.session = None
+            logger.info("UrbanDBAPI session closed.")
+
     async def get_child_territories(self, territory_id: int, page_num: int, page_size: int):
-        """
-        Collecting child territories from UrbanDB_API.
-        """
         api_url = (
             f"{self.url}/v1/territories?parent_id={territory_id}"
             f"&get_all_levels=true&cities_only=False&page={page_num}&page_size={page_size}"
         )
         logger.info(f"Fetching child territories from API: {api_url}")
-
-        json_data = await self.handler.request("GET", api_url)
-        
-        logger.info(
-            f"Child territories for territory_id {territory_id} successfully fetched from API."
-        )
+        json_data = await self.handler.request("GET", api_url, session=self.session)
+        logger.info(f"Child territories for territory_id {territory_id} successfully fetched from API.")
         territories = []
         for territory in json_data["results"]:
             territories.append([
@@ -67,19 +66,12 @@ class UrbanDBAPI:
             lambda x: x.get("id") if isinstance(x, dict) else None
         )
         return territories
-    
+
     async def get_territory(self, territory_id: int):
-        """
-        Collecting territory from UrbanDB_API.
-        """
         api_url = f"{self.url}/v1/territory/{territory_id}"
         logger.info(f"Fetching territory from API: {api_url}")
-
-        json_data = await self.handler.request("GET", api_url)
-
-        logger.info(
-            f"Territory for territory_id {territory_id} successfully fetched from API."
-        )
+        json_data = await self.handler.request("GET", api_url, session=self.session)
+        logger.info(f"Territory for territory_id {territory_id} successfully fetched from API.")
         territory = [
             json_data["name"],
             json_data["territory_id"],
@@ -111,9 +103,6 @@ class UrbanDBAPI:
         return territory
 
     async def get_territories(self, territory_id):
-        """
-        Collecting all territories from UrbanDB_API
-        """
         parent_territory = await self.get_territory(territory_id)
         child_territories = await self.get_child_territories(territory_id, 1, 10000)
         territories = pd.concat([parent_territory, child_territories])
@@ -123,30 +112,20 @@ class UrbanDBAPI:
         return territories
 
     async def get_project_territory_centroid(self, project_id):
-        """
-        Fetching centroid of territory of the project
-        """
         api_url = f"{self.url}/v1/projects/{project_id}/territory"
         logger.info(f"Fetching project territory from API: {api_url}")
-
-        json_data = await self.handler.request("GET", api_url)
+        json_data = await self.handler.request("GET", api_url, session=self.session)
         centre_coords = json_data.get("centre_point", {}).get("coordinates", None)
         return Point(centre_coords)
 
     async def get_context_ids(self, territory_id, project_id):
-        """
-        Finding id of territories which are in the context of the project
-        """
         api_url = (
             f"{self.url}/v1/projects?is_regional=false&territory_id={territory_id}"
             f"&page=1&page_size=10000"
         )
         logger.info(f"Fetching list of projects for the territory from API: {api_url}")
-
-        json_data = await self.handler.request("GET", api_url)
-        logger.info(
-            f"List of projects for the territory {territory_id} successfully fetched from API."
-        )
+        json_data = await self.handler.request("GET", api_url, session=self.session)
+        logger.info(f"List of projects for the territory {territory_id} successfully fetched from API.")
         results = json_data.get("results", [])
         for project in results:
             if project.get("project_id") == project_id:
@@ -159,12 +138,8 @@ class UrbanDBAPI:
         )
 
     async def get_context_territories(self, territory_id, project_id):
-        """
-        Collecting parent territory from UrbanDB_API.
-        """
         context_list = await self.get_context_ids(territory_id, project_id)
         logger.info(f"Starting collection of territories for project {project_id}")
-        
         all_context_territories = []
         chunk_size = 15
         for i in range(0, len(context_list), chunk_size):
@@ -172,11 +147,8 @@ class UrbanDBAPI:
             tasks = [self.get_territory(context_territory) for context_territory in chunk]
             chunk_results = await asyncio.gather(*tasks)
             all_context_territories.extend(chunk_results)
-        
         context_territories = pd.concat(all_context_territories)
-        logger.info(
-            f"Context territories for project {project_id} successfully collected"
-        )
+        logger.info(f"Context territories for project {project_id} successfully collected")
         return context_territories
 
 urban_db_api = UrbanDBAPI(config)

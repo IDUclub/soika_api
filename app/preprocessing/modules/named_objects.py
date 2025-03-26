@@ -263,39 +263,48 @@ class NERCalculation:
         results = await asyncio.gather(*tasks, return_exceptions=True)
         named_objects["query_result"] = results
 
+        fallback = False
+
         if len(named_objects["query_result"]) > 0:
-            logger.info("Data from OSM collected")
             parsed_df = pd.json_normalize(named_objects.query_result)
-            parsed_df = parsed_df.drop(
-                columns=[
-                    "bbox_north",
-                    "bbox_south",
-                    "bbox_east",
-                    "bbox_west",
-                    "lat",
-                    "lon",
-                ],
-                errors="ignore",
-            )
-            
-            parsed_df["geometry"] = parsed_df["geometry"].apply(ner_calculation.safe_to_geometry)
-            named_objects = pd.concat([named_objects.reset_index(drop=True), parsed_df], axis=1)
-            named_objects["geometry"] = named_objects["geometry"].fillna(
-                gpd.GeoSeries.from_wkt(named_objects["street_geometry"])
-            )
-            named_objects.drop(columns=['street_geometry'], inplace=True)
-            named_objects.dropna(subset='geometry', inplace=True)
-            named_objects = gpd.GeoDataFrame(named_objects, geometry='geometry', crs=4326)
-            named_objects["geometry"] = (
+            if "geometry" in parsed_df.columns:
+                logger.info("Data from OSM collected and geometry column is present")
+                parsed_df = parsed_df.drop(
+                    columns=[
+                        "bbox_north",
+                        "bbox_south",
+                        "bbox_east",
+                        "bbox_west",
+                        "lat",
+                        "lon",
+                    ],
+                    errors="ignore",
+                )
+                parsed_df["geometry"] = parsed_df["geometry"].apply(ner_calculation.safe_to_geometry)
+                named_objects = pd.concat([named_objects.reset_index(drop=True), parsed_df], axis=1)
+                named_objects["geometry"] = named_objects["geometry"].fillna(
+                    gpd.GeoSeries.from_wkt(named_objects["street_geometry"])
+                )
+                named_objects.drop(columns=['street_geometry'], inplace=True)
+                named_objects.dropna(subset=['geometry'], inplace=True)
+                named_objects = gpd.GeoDataFrame(named_objects, geometry='geometry', crs=4326)
+                named_objects["geometry"] = (
                     named_objects["geometry"].to_crs(3857).centroid.to_crs(4326)
                 )
+            else:
+                logger.info("Data from OSM collected but geometry column is missing; falling back to default")
+                fallback = True
         else:
             logger.info("No OSM data found")
+            fallback = True
+
+        if fallback:
             named_objects["geometry"] = named_objects["street_geometry"]
             named_objects["class"] = None
             named_objects["type"] = None
             named_objects["osm_id"] = None
             named_objects["display_name"] = None
+
 
         named_objects.drop(
             columns=[
@@ -327,7 +336,6 @@ class NERCalculation:
             inplace=True,
         )
         
-        #named_objects = gpd.GeoDataFrame(named_objects, geometry="geometry").set_crs(4326)
         named_objects = named_objects[~named_objects["osm_type"].isin(
             [
                 "administrative",
@@ -667,9 +675,9 @@ class NERCalculation:
         async with database.session() as session:
             result = await session.execute(select(NamedObject))
             named_objects = result.scalars().all()
-        response = []
+        list_of_objects = []
         for no in named_objects:
-            response.append({
+            list_of_objects.append({
                 "named_object_id": no.named_object_id,
                 "object_name": no.object_name,
                 "object_description": no.object_description,
@@ -682,6 +690,7 @@ class NERCalculation:
                 "geometry": to_shape(no.geometry).wkt if no.geometry else None,
                 "is_processed": no.is_processed,
             })
+        response = {"named_objects": list_of_objects}
         return response
 
     @staticmethod

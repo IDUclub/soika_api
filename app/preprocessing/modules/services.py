@@ -164,7 +164,7 @@ class ServicesCalculation:
         async with database.session() as session:
             result = await session.execute(select(MessageService))
             services = result.scalars().all()
-        services_list = [{"message_id": s.message_id, "indicator_id": s.service_id} for s in services]
+        services_list = [{"message_id": s.message_id, "service_id": s.service_id} for s in services]
         return {"message_service_pairs": services_list}
 
     @staticmethod

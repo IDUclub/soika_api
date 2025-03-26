@@ -1,10 +1,36 @@
-from fastapi import APIRouter, UploadFile, File, Query
-from fastapi import status
+from fastapi import APIRouter, UploadFile, Request, File, Query, status
 from app.preprocessing.preprocessing import PreprocessingService
 from app.preprocessing.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
 from app.preprocessing.dto.territory_dto import TerritoryCreate
 from app.preprocessing.dto.emotion_dto import EmotionCreate
 from app.preprocessing.dto.indicator_dto import IndicatorCreate
+
+from app.schema.common_response import DetailResponse, StatusResponse
+from app.schema.territories_response import TerritoriesListResponse, CreateTerritoryResponse
+from app.schema.groups_response import GroupsListResponse
+from app.schema.messages_response import (
+    MessagesListResponse,
+    UploadMessagesResponse,
+    VKTextsResponse,
+    CreateEmotionResponse,
+    AddressesExtractionResponse
+)
+from app.schema.named_objects_response import (
+    NamedObjectsListResponse,
+    UploadNamedObjectsResponse,
+    ExtractNamedObjectsResponse
+)
+from app.schema.indicators_response import (
+    IndicatorsListResponse,
+    MessageIndicatorPairsResponse,
+    CreateIndicatorResponse,
+    ExtractIndicatorsResponse
+)
+from app.schema.services_response import (
+    ServicesListResponse,
+    MessageServicePairsResponse,
+    ExtractServicesResponse
+)
 
 territories_router = APIRouter()
 groups_router = APIRouter()
@@ -14,127 +40,169 @@ indicators_router = APIRouter()
 services_router = APIRouter()
 
 # Territories endpoints
-
-@territories_router.get("/get_territories")
-async def get_territories():
+@territories_router.get("/get_territories", response_model=TerritoriesListResponse)
+async def get_territories() -> TerritoriesListResponse:
     return await PreprocessingService.get_territories()
 
-@territories_router.post("/add_territory", status_code=status.HTTP_201_CREATED)
-async def create_territory(payload: TerritoryCreate):
+@territories_router.post(
+    "/add_territory",
+    status_code=201,
+    response_model=CreateTerritoryResponse
+)
+async def create_territory(payload: TerritoryCreate) -> CreateTerritoryResponse:
     return await PreprocessingService.create_territory(payload)
 
-@territories_router.delete("/territories")
-async def delete_territories():
+@territories_router.delete("/territories", response_model=DetailResponse)
+async def delete_territories() -> DetailResponse:
     return await PreprocessingService.delete_territories()
 
 # Groups endpoints
-
-@groups_router.get("/get_groups")
-async def get_groups():
+@groups_router.get("/get_groups", response_model=GroupsListResponse)
+async def get_groups() -> GroupsListResponse:
     return await PreprocessingService.get_groups()
 
-@groups_router.post("/collect_vk_groups", status_code=status.HTTP_201_CREATED)
-async def collect_vk_groups(data: VKGroupsRequest):
+@groups_router.post(
+    "/collect_vk_groups",
+    status_code=201,
+    response_model=StatusResponse
+)
+async def collect_vk_groups(data: VKGroupsRequest) -> StatusResponse:
     return await PreprocessingService.collect_vk_groups(data)
 
-@groups_router.delete("/groups")
-async def delete_groups():
+@groups_router.delete("/groups", response_model=DetailResponse)
+async def delete_groups() -> DetailResponse:
     return await PreprocessingService.delete_groups()
 
 # Messages endpoints
-
-@messages_router.get("/get_messages")
+@messages_router.get("/get_messages", response_model=MessagesListResponse)
 async def get_messages(
     only_with_location: bool = Query(
         False, description="Возвращать только записи с имеющимися geometry и location"
     )
-):
+) -> MessagesListResponse:
     return await PreprocessingService.get_messages(only_with_location)
 
-@messages_router.post("/add_messages", status_code=status.HTTP_201_CREATED)
-async def add_messages(file: UploadFile = File(...)):
+@messages_router.post(
+    "/add_messages",
+    status_code=201,
+    response_model=UploadMessagesResponse
+)
+async def add_messages(file: UploadFile = File(...)) -> UploadMessagesResponse:
     return await PreprocessingService.add_messages(file)
 
-@messages_router.post("/collect_vk_texts", status_code=status.HTTP_201_CREATED)
-async def collect_vk_texts(data: VKTextsRequest):
-    return await PreprocessingService.collect_vk_texts(data)
+@messages_router.post(
+    "/collect_vk_texts",
+    status_code=201,
+    response_model=VKTextsResponse
+)
+async def collect_vk_texts(data: VKTextsRequest, request: Request) -> VKTextsResponse:
+    return await PreprocessingService.collect_vk_texts(data, request=request)
 
-@messages_router.post("/add_emotions", status_code=status.HTTP_201_CREATED)
-async def add_emotions(payload: EmotionCreate):
+@messages_router.post(
+    "/add_emotions",
+    status_code=201,
+    response_model=CreateEmotionResponse
+)
+async def add_emotions(payload: EmotionCreate) -> CreateEmotionResponse:
     return await PreprocessingService.add_emotions(payload)
 
-@messages_router.post("/determine_emotion", status_code=status.HTTP_201_CREATED)
-async def determine_emotion():
+@messages_router.post(
+    "/determine_emotion",
+    status_code=201,
+    response_model=DetailResponse
+)
+async def determine_emotion() -> DetailResponse:
     return await PreprocessingService.determine_emotion()
 
-@messages_router.post("/extract_addresses", status_code=status.HTTP_201_CREATED)
+@messages_router.post(
+    "/extract_addresses",
+    status_code=201,
+    response_model=AddressesExtractionResponse
+)
 async def extract_addresses(
     device: str = "cpu",
     top: int = Query(None, description="Сколько сообщений обрабатывать (None = все)"),
     territory_name: str = Query("Ленинградская область", description="Название региона для геокодирования")
-):
+) -> AddressesExtractionResponse:
     return await PreprocessingService.extract_addresses(device, top, territory_name)
 
-@messages_router.delete("/messages")
-async def delete_messages():
+@messages_router.delete("/messages", response_model=DetailResponse)
+async def delete_messages() -> DetailResponse:
     return await PreprocessingService.delete_messages()
 
 # Named Objects endpoints
-
-@named_objects_router.get("/named_objects")
-async def named_objects():
+@named_objects_router.get("/named_objects", response_model=NamedObjectsListResponse)
+async def named_objects() -> NamedObjectsListResponse:
     return await PreprocessingService.get_named_objects()
 
-@named_objects_router.post("/add_named_objects", status_code=status.HTTP_201_CREATED)
-async def add_named_objects(file: UploadFile = File(...)):
+@named_objects_router.post(
+    "/add_named_objects",
+    status_code=201,
+    response_model=UploadNamedObjectsResponse
+)
+async def add_named_objects(file: UploadFile = File(...)) -> UploadNamedObjectsResponse:
     return await PreprocessingService.add_named_objects(file)
 
-@named_objects_router.post("/extract_named_objects", status_code=status.HTTP_201_CREATED)
+@named_objects_router.post(
+    "/extract_named_objects",
+    status_code=201,
+    response_model=ExtractNamedObjectsResponse
+)
 async def extract_named_objects(
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
-):
+) -> ExtractNamedObjectsResponse:
     return await PreprocessingService.extract_named_objects(top)
 
-@named_objects_router.delete("/named_objects")
-async def delete_named_objects():
+@named_objects_router.delete("/named_objects", response_model=DetailResponse)
+async def delete_named_objects() -> DetailResponse:
     return await PreprocessingService.delete_named_objects()
 
 # Indicators endpoints
-
-@indicators_router.get("/get_indicators")
-async def get_indicators():
+@indicators_router.get("/get_indicators", response_model=IndicatorsListResponse)
+async def get_indicators() -> IndicatorsListResponse:
     return await PreprocessingService.get_indicators()
 
-@indicators_router.get("/get_message_indicator_pairs")
-async def get_message_indicator_pairs():
+@indicators_router.get("/get_message_indicator_pairs", response_model=MessageIndicatorPairsResponse)
+async def get_message_indicator_pairs() -> MessageIndicatorPairsResponse:
     return await PreprocessingService.get_message_indicator_pairs()
 
-@indicators_router.post("/add_indicators", status_code=status.HTTP_201_CREATED)
-async def add_indicators(payload: IndicatorCreate):
+@indicators_router.post(
+    "/add_indicators",
+    status_code=201,
+    response_model=CreateIndicatorResponse
+)
+async def add_indicators(payload: IndicatorCreate) -> CreateIndicatorResponse:
     return await PreprocessingService.add_indicators(payload)
 
-@indicators_router.post("/extract_indicators", status_code=status.HTTP_201_CREATED)
+@indicators_router.post(
+    "/extract_indicators",
+    status_code=201,
+    response_model=ExtractIndicatorsResponse
+)
 async def extract_indicators(
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
-):
+) -> ExtractIndicatorsResponse:
     return await PreprocessingService.extract_indicators(top)
 
-@indicators_router.delete("/indicators")
-async def delete_indicators():
+@indicators_router.delete("/indicators", response_model=DetailResponse)
+async def delete_indicators() -> DetailResponse:
     return await PreprocessingService.delete_indicators()
 
 # Services endpoints
-
-@services_router.get("/get_services")
-async def get_services():
+@services_router.get("/get_services", response_model=ServicesListResponse)
+async def get_services() -> ServicesListResponse:
     return await PreprocessingService.get_services()
 
-@services_router.get("/get_message_service_pairs")
-async def get_message_service_pairs():
+@services_router.get("/get_message_service_pairs", response_model=MessageServicePairsResponse)
+async def get_message_service_pairs() -> MessageServicePairsResponse:
     return await PreprocessingService.get_message_service_pairs()
 
-@services_router.post("/extract_services", status_code=status.HTTP_201_CREATED)
+@services_router.post(
+    "/extract_services",
+    status_code=201,
+    response_model=ExtractServicesResponse
+)
 async def extract_services(
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
-):
+) -> ExtractServicesResponse:
     return await PreprocessingService.extract_services(top)

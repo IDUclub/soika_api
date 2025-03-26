@@ -31,24 +31,24 @@ setup_logger(config)
 async def lifespan(app: FastAPI):
     await models_initialization.init_models()
 
-    await urban_db_api.init() 
+    await urban_db_api.init()
     app.state.urban_db_api = urban_db_api
 
-    await effects_api.init() 
+    await effects_api.init()
     app.state.effects_api = effects_api
 
-    await townsnet_api.init() 
+    await townsnet_api.init()
     app.state.townsnet_api = townsnet_api
 
-    await values_api.init() 
+    await values_api.init()
     app.state.values_api = values_api
 
     yield
 
-    await app.state.urban_db_api.session.close()
-    await app.state.effects_api.session.close()
-    await app.state.townsnet_api.session.close()
-    await app.state.values_api.session.close()
+    await app.state.urban_db_api.close()
+    await app.state.effects_api.close()
+    await app.state.townsnet_api.close()
+    await app.state.values_api.close()
 
 app = FastAPI(
     title="SOIKA API",
@@ -67,11 +67,7 @@ app.add_middleware(
 )
 
 def include_routers(app: FastAPI, config: Config) -> None:
-    """
-    Регистрирует все роутеры в приложении с префиксом из конфигурации.
-    """
     prefix = config.get("FASTAPI_PREFIX")
-    
     app.include_router(system_router, prefix=prefix, tags=["System"])
     app.include_router(calculation_router, prefix=prefix, tags=["Analysis"])
     app.include_router(territories_router, prefix=prefix, tags=["Territories"])

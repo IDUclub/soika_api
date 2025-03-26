@@ -1,4 +1,5 @@
 from loguru import logger
+from fastapi import Request
 from app.preprocessing.modules.territories import territories_calculation
 from app.preprocessing.modules.groups import groups_calculation
 from app.preprocessing.modules.messages import messages_calculation
@@ -40,7 +41,7 @@ class PreprocessingService:
     @staticmethod
     async def delete_groups():
         logger.info("Service: Deleting groups")
-        return await groups_calculation()
+        return await groups_calculation.delete_all_groups_func()
 
     # Messages methods
 
@@ -55,9 +56,9 @@ class PreprocessingService:
         return await messages_calculation.upload_messages_func(file)
 
     @staticmethod
-    async def collect_vk_texts(data):
+    async def collect_vk_texts(data, request: Request):
         logger.info("Service: Collecting VK texts")
-        return await messages_calculation.collect_vk_texts_func(data)
+        return await messages_calculation.collect_vk_texts_func(data, request=request)
 
     @staticmethod
     async def add_emotions(payload):

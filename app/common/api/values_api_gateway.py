@@ -18,17 +18,18 @@ class ValuesAPI:
         self.session = aiohttp.ClientSession()
         self.handler = APIHandler()
 
-    async def get_value_data(self, territory_id: int):
-        """
-        Collecting values data for region from Values_API.
-        """
-        api_url = f"{self.url}/regions/values_identities?territory_id={territory_id}"
-        logger.info(f"Fetching values data from api: {api_url}")
+    async def close(self):
+        if self.session:
+            await self.handler.close_session(self.session)
+            self.session = None
+            logger.info("ValuesAPI session closed.")
 
-        json_data = await self.handler.request("GET", api_url)
-        logger.info(
-            f"Values data for territory_id {territory_id} successfully fetched from API."
-        )
+    async def get_value_data(self, territory_id: int):
+        api_url = f"{self.url}/regions/values_identities?territory_id={territory_id}"
+        logger.info(f"Fetching values data from API: {api_url}")
+
+        json_data = await self.handler.request("GET", api_url, session=self.session)
+        logger.info(f"Values data for territory_id {territory_id} successfully fetched from API.")
 
         df_values = pd.DataFrame.from_dict(json_data, orient="index")
         df_melted = df_values.stack().reset_index()

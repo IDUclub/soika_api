@@ -1,5 +1,6 @@
 #  TODO: зарефакторить этот модуль
 
+from fastapi import Request
 from app.common.db.database import (
     Territory,
     Group,
@@ -40,40 +41,34 @@ class MessagesCalculation:
     async def add_messages(self, file: UploadFile):
         """
         Обработка CSV-файла для добавления сообщений в базу данных.
+        
+        Алгоритм работы:
+        1. Считываем записи из CSV и проходим по каждой строке.
+        2. Для каждой строки:
+            - Определяем поля (эмоция, геометрия, территория, группа и т.д.) и создаём объект Message.
+            - Устанавливаем parent_message_id = None.
+            - Сохраняем объект, чтобы получить новый message_id.
+            - Если в CSV присутствует оригинальный id, сохраняем сопоставление CSV_id -> объект Message.
+            - Если в CSV указано значение parent_message_id, сохраняем пару (CSV_parent_id, текущий объект Message) для последующей установки связи.
+            - Обрабатываем дополнительные связи: сервисы, индикаторы, связь группы с территорией.
+        3. После добавления всех сообщений проходим по сохранённым парам для установки parent_message_id,
+            ищем в словаре соответствий родительское сообщение по CSV_parent_id и обновляем поле.
+        4. Коммитим все изменения.
         """
         logger.info(f"Начало обработки CSV-файла '{file.filename}' для добавления сообщений.")
 
-        # Костыль: Добавляем искусственное сообщение с message_id = 1, если его ещё нет
-        async with database.session() as session:
-            result = await session.execute(select(Message).where(Message.message_id == 1))
-            dummy = result.scalars().first()
-            if not dummy:
-                dummy_message = Message(
-                    message_id=1,
-                    text="Искусственное сообщение - dummy record",
-                    date=datetime.now(),
-                    views=0,
-                    likes=0,
-                    reposts=0,
-                    type="post",
-                    parent_message_id=1,
-                    group_id=None,
-                    emotion_id=None,
-                    score=None,
-                    geometry=None,
-                    location=None,
-                    is_processed=True,
-                )
-                session.add(dummy_message)
-                await session.commit()
-                logger.info("Искусственное сообщение добавлено с message_id=1.")
-
-        records = await asyncio.to_thread(utils.read_csv_to_dict, file)
+        records = await utils.read_csv_to_dict(file)
         messages = []
         ru_service_names = CONSTANTS.json["ru_service_names"]
 
+        csv_to_db_message = {}
+        parent_relationships = []
+
         async with database.session() as session:
             for row in records:
+                csv_message_id = row.get("id")
+                csv_parent_id = row.get("parent_message_id")
+                
                 result = await session.execute(select(Emotion).where(Emotion.name == row.get("emotion")))
                 emotion_obj = result.scalars().first()
                 if not emotion_obj:
@@ -88,7 +83,7 @@ class MessagesCalculation:
                 else:
                     logger.error("Отсутствует значение геометрии")
                     raise Exception("Отсутствует значение геометрии")
-                
+
                 territory_id = None
                 territory_name = row.get("territory_name")
                 if territory_name:
@@ -122,7 +117,7 @@ class MessagesCalculation:
                     likes=int(row.get("likes")) if row.get("likes") else None,
                     reposts=int(row.get("reposts")) if row.get("reposts") else None,
                     type=row.get("type"),
-                    parent_message_id=1,  # Продолжение костыля - дальше должно вести на нормальный айдишник
+                    parent_message_id=None,
                     group_id=group_id,
                     emotion_id=emotion_id,
                     score=float(row.get("score")) if row.get("score") else None,
@@ -134,8 +129,11 @@ class MessagesCalculation:
                 session.add(message)
                 await session.flush()
 
-                message.parent_message_id = message.message_id
-                await session.flush()
+                if csv_message_id:
+                    csv_to_db_message[csv_message_id] = message
+
+                if csv_parent_id:
+                    parent_relationships.append((csv_parent_id, message))
 
                 services_field = row.get("services")
                 if services_field:
@@ -195,10 +193,22 @@ class MessagesCalculation:
                     if not group_territory_obj:
                         group_territory_obj = GroupTerritory(group_id=group_id, territory_id=territory_id)
                         session.add(group_territory_obj)
+
                 messages.append(message)
+
+            for csv_parent_id, message in parent_relationships:
+                parent_message = csv_to_db_message.get(csv_parent_id)
+                if parent_message:
+                    message.parent_message_id = parent_message.message_id
+                    logger.info(f"Установлена связь: сообщение {message.message_id} с родительским {parent_message.message_id}")
+                else:
+                    logger.warning(f"Родительское сообщение с CSV id {csv_parent_id} не найдено. Оставляем parent_message_id как None.")
+                await session.flush()
+            
             await session.commit()
         logger.info(f"Обработка файла '{file.filename}' завершена. Добавлено сообщений: {len(messages)}")
         return messages
+
 
     @staticmethod
     async def get_latest_message_date_by_territory_id(territory_id: int):
@@ -220,9 +230,16 @@ class MessagesCalculation:
             latest_date = result.scalar()
         return latest_date
 
-    async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None, limit: int = None):
+    async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None, limit: int = None, request: Request = None):
         """
         Получает сообщения из ВК для групп, связанных с territory_id.
+        Если параметр request передан, то перед обработкой каждой группы проверяется,
+        не был ли прерван запрос клиентом.
+        
+        Обновлено для корректного формирования связей между сообщениями:
+        - Сначала создаются сообщения с parent_message_id=None.
+        - Сохраняется соответствие оригинальных id из VK с новыми message_id.
+        - Затем устанавливаются связи между сообщениями на основании оригинальных parent_message_id.
         """
         if not cutoff_date:
             latest_date = await messages_calculation.get_latest_message_date_by_territory_id(territory_id)
@@ -240,11 +257,15 @@ class MessagesCalculation:
         total_messages_count = 0
 
         logger.info(
-            f"Starting to parse VK texts for territory_id={territory_id}, "
-            f"cutoff_date={cutoff_date}, found {len(groups)} groups."
+            f"Starting to parse VK texts for territory_id={territory_id}, cutoff_date={cutoff_date}, found {len(groups)} groups."
         )
 
         for group in groups:
+            # TODO: убрать после перехода на брокер
+            if request is not None and await request.is_disconnected():
+                logger.info("Client disconnected. Cancelling further processing.")
+                break
+
             if limit is not None and total_messages_count >= limit:
                 logger.info("Global message limit reached. Stopping further processing.")
                 break
@@ -271,29 +292,37 @@ class MessagesCalculation:
             df["date"] = await asyncio.to_thread(lambda d: pd.to_datetime(d["date"], utc=True), df)
             messages_data = await asyncio.to_thread(lambda d: d.to_dict("records"), df)
 
+            orig_to_new = {}
+            pending_parent_updates = []
+
             for message in messages_data:
-                message.pop("id", None)  # Удаляем оригинальный vk id
+                orig_id = message.get("id")
+                orig_parent_id = message.get("parent_message_id")
+                message.pop("id", None)
+                message.pop("parents_stack", None)
                 message["views"] = message.pop("views.count")
                 message["likes"] = message.pop("likes.count")
                 message["reposts"] = message.pop("reposts.count")
-                message.pop("parents_stack", None)  # не используем parents_stack
-                message["parent_message_id"] = 1
+                message["parent_message_id"] = None
                 message["score"] = None
                 message["location"] = None
                 message["geometry"] = None
                 message["emotion_id"] = None
                 message["is_processed"] = False
 
+                message["_orig_id"] = orig_id
+                message["_orig_parent_id"] = orig_parent_id
+
             async with database.session() as session:
                 for msg in messages_data:
-                    message_obj = Message(
+                    new_message = Message(
                         text=msg["text"],
                         date=msg["date"],
                         views=msg["views"],
                         likes=msg["likes"],
                         reposts=msg["reposts"],
                         type=msg["type"],
-                        parent_message_id=msg["parent_message_id"],
+                        parent_message_id=None,
                         group_id=msg["group_id"],
                         emotion_id=msg["emotion_id"],
                         score=msg["score"],
@@ -301,7 +330,26 @@ class MessagesCalculation:
                         location=msg["location"],
                         is_processed=msg["is_processed"],
                     )
-                    session.add(message_obj)
+                    session.add(new_message)
+                    await session.flush()
+
+                    orig_id = msg.get("_orig_id")
+                    if orig_id is not None:
+                        orig_to_new[orig_id] = new_message
+
+                    orig_parent_id = msg.get("_orig_parent_id")
+                    if orig_parent_id is not None:
+                        pending_parent_updates.append((orig_parent_id, new_message))
+
+                for orig_parent, child_message in pending_parent_updates:
+                    parent_message = orig_to_new.get(orig_parent)
+                    if parent_message:
+                        child_message.parent_message_id = parent_message.message_id
+                        logger.info(f"Set parent for message {child_message.message_id} to {parent_message.message_id}")
+                    else:
+                        logger.warning(f"Parent with original id {orig_parent} not found. Leaving parent_message_id as None.")
+                    await session.flush()
+
                 await session.commit()
 
             logger.info(f"Committed {len(messages_data)} messages to DB for group_id={group.group_id}.")
@@ -493,11 +541,12 @@ class MessagesCalculation:
             raise HTTPException(status_code=400, detail=str(e))
 
     @staticmethod
-    async def collect_vk_texts_func(data):
+    async def collect_vk_texts_func(data, request: Request):
         result = await messages_calculation.parse_VK_texts(
             territory_id=data.territory_id,
             cutoff_date=data.to_date,
-            limit=data.limit
+            limit=data.limit,
+            request=request
         )
         return {"status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."}
 
