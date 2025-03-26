@@ -1,22 +1,35 @@
-import aiohttp
 from loguru import logger
+import aiohttp
 import geopandas as gpd
-import requests
-
-from app.common.config import config
-from app.common.exceptions.http_exception_wrapper import http_exception
+from iduconfig import Config
+from app.common.api.api_error_handler import APIHandler
+from app.dependencies import config
 
 class TownsnetAPI:
-    def __init__(self):
+    def __init__(self, config: Config):
         self.url = config.get("Townsnet_API")
-    async def get_evaluated_territories(self, project_id:int, token):
+        self.session = None
+        self.handler = None
+        self.config = config
+
+    async def init(self):
+        self.session = aiohttp.ClientSession()
+        self.handler = APIHandler()
+
+    async def close(self):
+        if self.session:
+            await self.handler.close_session(self.session)
+            self.session = None
+            logger.info("TownsnetAPI session closed.")
+
+    async def get_evaluated_territories(self, project_id: int, token: str):
         api_url = f"{self.url}/provision/{project_id}/get_project_evaluation"
         logger.info(f"Fetching evaluated territories from API: {api_url}")
-        response = requests.get(api_url, headers={'Authorization': f'Bearer {token}'})
-        response.raise_for_status()
-        geojson_data = response.json()
+
+        headers = {'Authorization': f'Bearer {token}'}
+        geojson_data = await self.handler.request("GET", api_url, session=self.session, headers=headers)
         logger.info(f"Evaluated territories for project_id {project_id} successfully fetched from API.")
         territories = gpd.GeoDataFrame.from_features(geojson_data["features"])
         return territories
-       
-townsnet_api = TownsnetAPI()
+
+townsnet_api = TownsnetAPI(config)

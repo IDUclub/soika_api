@@ -2,11 +2,13 @@ from pathlib import Path
 from datetime import datetime
 from app.common.storage.interfaces import Cacheable
 
+
 class CacheablePythonBytes(Cacheable):
     """
     Cacheable implementation for raw byte data.
     This class is responsible for saving byte data directly to a file.
     """
+
     def __init__(self, data: bytes):
         self.data = data
 

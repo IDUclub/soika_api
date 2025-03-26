@@ -9,6 +9,7 @@ class CacheableBytes(Cacheable):
     """
     Cacheable implementation for BytesIO type
     """
+
     def __init__(self, bytesio: BytesIO):
         self.bytes: BytesIO = bytesio
 
