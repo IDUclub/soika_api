@@ -8,6 +8,9 @@ class CoverageResponse(BaseModel):
 class EffectItem(BaseModel):
     name: str
     category: Optional[str] = None # TODO: make obligatory str later
+    before: float
+    after: float
+    delta: float
     risk: float
 
 class EffectsResponse(BaseModel):
