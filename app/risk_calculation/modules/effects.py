@@ -28,11 +28,34 @@ class EffectsCalculation:
         effects = await effects_api.get_evaluated_territories(scenario_id, token)
         effects = effects.merge(score_df[['services', 'total_score']], left_on='name', right_on='services', how='left')
         effects['total_score'].fillna(0, inplace=True)
-        effects['category'] = effects['name'].map(CONSTANTS.json['services_categories'])
+        services_data = await urban_db_api.get_services_for_groups()
+        effects = (
+            effects
+            .merge(
+                services_data,
+                left_on='name',  
+                right_index=True,
+                how='left'
+            )
+            .drop(columns=['services', 'id'])
+        )
+        effects.rename(columns={'infrastructure_type':'category'}, inplace=True)
+        effects['category'] = effects['category'].map({"basic":"Базовая", "additional":"Дополнительная", "comfort":"Комфортная"})
         effects['category'] = effects['category'] + ' инфраструктура'
         effects.rename(columns={'total_score':'risk'}, inplace=True)
-        effects.drop(columns=['services'], inplace=True)
         effects['category'] = effects['category'].replace({np.nan: None})
+        effects = (
+            effects
+            .groupby('name', as_index=False)
+            .agg(
+                before = ('before', 'first'),
+                after = ('after', 'first'),
+                delta = ('delta', 'first'),
+                risk = ('risk', 'first'),
+                category  = ('category',  'first'),
+                social_group = ('social_group', list),
+            )
+        )
         response = {'effects':effects.to_dict(orient='records')}
 
         return response
