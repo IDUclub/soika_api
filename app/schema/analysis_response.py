@@ -8,6 +8,7 @@ class CoverageResponse(BaseModel):
 class EffectItem(BaseModel):
     name: str
     category: Optional[str] = None # TODO: make obligatory str later
+    social_group: Optional[List[str]] = None # TODO: make obligatory str later
     before: float
     after: float
     delta: float
@@ -24,6 +25,7 @@ class ProvisionRiskItem(BaseModel):
     risk: float
     provision: float
     category: Optional[str] = None # TODO: make obligatory str later
+    social_group: Optional[List[str]] = None # TODO: make obligatory str later
 
 class ProvisionToRiskResponse(BaseModel):
     provision_to_risk_table: List[ProvisionRiskItem]

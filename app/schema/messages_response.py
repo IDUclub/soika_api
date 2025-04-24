@@ -10,11 +10,11 @@ class MessageResponse(BaseModel):
     likes: Optional[int]
     reposts: Optional[int]
     type: str
-    parent_message_id: int
+    parent_message_id: Optional[int] = None
     group_id: Optional[int]
     emotion_id: Optional[int]
     score: Optional[float]
-    geometry: Optional[str]  # WKT-представление геометрии
+    geometry: Optional[str]
     location: Optional[str]
     is_processed: bool
 

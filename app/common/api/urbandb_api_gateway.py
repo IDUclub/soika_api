@@ -150,5 +150,42 @@ class UrbanDBAPI:
         context_territories = pd.concat(all_context_territories)
         logger.info(f"Context territories for project {project_id} successfully collected")
         return context_territories
+    
+    async def get_social_groups(self):
+        api_url = (
+            f"{self.url}/v1/social_groups"
+        )
+        results = await self.handler.request("GET", api_url, session=self.session)
+        social_groups = pd.DataFrame(results)
+        return social_groups
+
+    async def get_services_for_groups(self):
+        social_groups = await self.get_social_groups()
+        tasks = []
+        for _, group in social_groups.iterrows():
+            group_id = group['soc_group_id']
+            api_url = f"{self.url}/v1/social_groups/{group_id}"
+            logger.info(f"Prepared fetch task for social group {group_id}: {api_url}")
+            coro = self.handler.request("GET", api_url, session=self.session)
+            tasks.append((group['name'], coro))
+        responses = await asyncio.gather(*(c for _, c in tasks), return_exceptions=True)
+        services_list = []
+        for (group_name, _), result in zip(tasks, responses):
+            if isinstance(result, Exception):
+                logger.error(f"Error fetching services for group {group_name}: {result}")
+                continue
+            df = pd.DataFrame(result.get('service_types', []))
+            df['social_group'] = group_name
+            services_list.append(df)
+            logger.info(f"Fetched {len(df)} services for group {group_name}")
+        if services_list:
+            services_data = pd.concat(services_list)
+            services_data = services_data.set_index('name')
+            logger.info("Service data for social groups successfully collected")
+            return services_data
+        else:
+            logger.warning("No service data collected for any social group")
+            return pd.DataFrame()
+
 
 urban_db_api = UrbanDBAPI(config)
