@@ -63,4 +63,5 @@ class EffectsAPI:
             logger.exception(f"Unexpected error for scenario {scenario_id}")
             raise
 
+
 effects_api = EffectsAPI(config)
