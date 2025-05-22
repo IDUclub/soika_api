@@ -1,6 +1,8 @@
 #  TODO: зарефакторить этот модуль
 
 from fastapi import Request
+
+from app.common.api.llm_gateway import llm_gateway
 from app.common.db.database import (
     Territory,
     Group,
@@ -34,6 +36,7 @@ import concurrent.futures
 from iduconfig import Config
 from app.dependencies import config
 
+
 class MessagesCalculation:
     def __init__(self, config: Config):
         self.config = config
@@ -41,7 +44,7 @@ class MessagesCalculation:
     async def add_messages(self, file: UploadFile):
         """
         Обработка CSV-файла для добавления сообщений в базу данных.
-        
+
         Алгоритм работы:
         1. Считываем записи из CSV и проходим по каждой строке.
         2. Для каждой строки:
@@ -68,7 +71,7 @@ class MessagesCalculation:
             for row in records:
                 csv_message_id = row.get("id")
                 csv_parent_id = row.get("parent_message_id")
-                
+
                 result = await session.execute(select(Emotion).where(Emotion.name == row.get("emotion")))
                 emotion_obj = result.scalars().first()
                 if not emotion_obj:
@@ -104,7 +107,8 @@ class MessagesCalculation:
                     if not group_obj:
                         matched_territory = row.get("territory_name")
                         group_domain = row.get("group_domain")
-                        group_obj = Group(name=group_name, group_domain=group_domain, matched_territory=matched_territory)
+                        group_obj = Group(name=group_name, group_domain=group_domain,
+                                          matched_territory=matched_territory)
                         session.add(group_obj)
                         await session.flush()
                         logger.info(f"Создана новая группа: {group_name}")
@@ -124,7 +128,7 @@ class MessagesCalculation:
                     geometry=ewkt_geometry,
                     location=row.get("location"),
                     is_processed=row.get("is_processed").strip().lower() in ["true", "1"]
-                        if row.get("is_processed") else False,
+                    if row.get("is_processed") else False,
                 )
                 session.add(message)
                 await session.flush()
@@ -200,15 +204,16 @@ class MessagesCalculation:
                 parent_message = csv_to_db_message.get(csv_parent_id)
                 if parent_message:
                     message.parent_message_id = parent_message.message_id
-                    logger.info(f"Установлена связь: сообщение {message.message_id} с родительским {parent_message.message_id}")
+                    logger.info(
+                        f"Установлена связь: сообщение {message.message_id} с родительским {parent_message.message_id}")
                 else:
-                    logger.warning(f"Родительское сообщение с CSV id {csv_parent_id} не найдено. Оставляем parent_message_id как None.")
+                    logger.warning(
+                        f"Родительское сообщение с CSV id {csv_parent_id} не найдено. Оставляем parent_message_id как None.")
                 await session.flush()
-            
+
             await session.commit()
         logger.info(f"Обработка файла '{file.filename}' завершена. Добавлено сообщений: {len(messages)}")
         return messages
-
 
     @staticmethod
     async def get_latest_message_date_by_territory_id(territory_id: int):
@@ -230,12 +235,13 @@ class MessagesCalculation:
             latest_date = result.scalar()
         return latest_date
 
-    async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None, limit: int = None, request: Request = None):
+    async def parse_VK_texts(self, territory_id: int, cutoff_date: str = None, limit: int = None,
+                             request: Request = None):
         """
         Получает сообщения из ВК для групп, связанных с territory_id.
         Если параметр request передан, то перед обработкой каждой группы проверяется,
         не был ли прерван запрос клиентом.
-        
+
         Обновлено для корректного формирования связей между сообщениями:
         - Сначала создаются сообщения с parent_message_id=None.
         - Сохраняется соответствие оригинальных id из VK с новыми message_id.
@@ -347,7 +353,8 @@ class MessagesCalculation:
                         child_message.parent_message_id = parent_message.message_id
                         logger.info(f"Set parent for message {child_message.message_id} to {parent_message.message_id}")
                     else:
-                        logger.warning(f"Parent with original id {orig_parent} not found. Leaving parent_message_id as None.")
+                        logger.warning(
+                            f"Parent with original id {orig_parent} not found. Leaving parent_message_id as None.")
                     await session.flush()
 
                 await session.commit()
@@ -393,7 +400,8 @@ class MessagesCalculation:
             return None
         return result_gdf.to_dict("records")
 
-    async def extract_addresses_for_unprocessed(self, device: str = "cpu", top: int = None, input_territory_name: str = None) -> list[dict]:
+    async def extract_addresses_for_unprocessed(self, device: str = "cpu", top: int = None,
+                                                input_territory_name: str = None) -> list[dict]:
         """
         1) Получает все сообщения (Message) с is_processed=False (ограничиваем top, если задан).
         2) Получает группы (Group) для этих сообщений.
@@ -453,11 +461,13 @@ class MessagesCalculation:
                         continue
                     territory_name = grp.matched_territory
                     if not territory_name:
-                        logger.warning(f"Group {grp.group_id} has no matched_territory. Skipping message {msg.message_id}.")
+                        logger.warning(
+                            f"Group {grp.group_id} has no matched_territory. Skipping message {msg.message_id}.")
                         continue
                     osm_id = territory_osm_ids.get(territory_name)
                     if not osm_id:
-                        logger.warning(f"Could not determine osm_id for territory '{territory_name}'. Skipping msg={msg.message_id}.")
+                        logger.warning(
+                            f"Could not determine osm_id for territory '{territory_name}'. Skipping msg={msg.message_id}.")
                         continue
                     messages_by_osm.setdefault(osm_id, []).append(msg)
 
@@ -466,7 +476,8 @@ class MessagesCalculation:
             loop = asyncio.get_running_loop()
             with concurrent.futures.ProcessPoolExecutor() as executor:
                 tasks = {
-                    osm_key: loop.run_in_executor(executor, messages_calculation.run_geocoding_task, osm_key, msgs, device, input_territory_name or None)
+                    osm_key: loop.run_in_executor(executor, messages_calculation.run_geocoding_task, osm_key, msgs,
+                                                  device, input_territory_name or None)
                     for osm_key, msgs in messages_by_osm.items()
                 }
                 for osm_key, future in tasks.items():
@@ -548,7 +559,8 @@ class MessagesCalculation:
             limit=data.limit,
             request=request
         )
-        return {"status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."}
+        return {
+            "status": f"VK texts for id {data.territory_id} collected and saved to DB. {len(result)} messages total."}
 
     @staticmethod
     async def create_emotion_func(payload):
@@ -569,23 +581,41 @@ class MessagesCalculation:
             query = select(Message).where(Message.is_processed == False)
             result = await session.execute(query)
             messages = result.scalars().all()
+
             if not messages:
                 return {"detail": "No unprocessed messages found."}
+
             total_messages = len(messages)
             count_updated = 0
+
             for msg in messages:
-                label = await messages_calculation.classify_emotion(msg.text)
+                raw = await llm_gateway.post(
+                    "/soika_models/extract_emotions",
+                    json={"text": msg.text}
+                )
+
+                if not isinstance(raw, list) or not raw:
+                    raise HTTPException(502, f"Invalid LLM response: {raw!r}")
+
+                label = raw[0].get('label')
+                if not isinstance(label, str):
+                    raise HTTPException(502, f"Unexpected label type: {label!r}")
+
                 emotion_query = select(Emotion).where(Emotion.name == label)
                 emotion_result = await session.execute(emotion_query)
                 emotion_obj = emotion_result.scalar_one_or_none()
+
                 if emotion_obj:
                     msg.emotion_id = emotion_obj.emotion_id
                     count_updated += 1
+
             await session.commit()
+
         return {"detail": f"Processed {count_updated} messages out of {total_messages}."}
 
     @staticmethod
-    async def extract_addresses_for_unprocessed_messages_func(device: str = "cpu", top: int = None, input_territory_name: str = "Ленинградская область"):
+    async def extract_addresses_for_unprocessed_messages_func(device: str = "cpu", top: int = None,
+                                                              input_territory_name: str = "Ленинградская область"):
         updated_records = await messages_calculation.extract_addresses_for_unprocessed(
             device=device,
             top=top,
