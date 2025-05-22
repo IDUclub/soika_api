@@ -40,9 +40,6 @@ class IndicatorsCalculation:
         return prompt
 
     async def describe_async(self, context):
-        """
-        Асинхронно отправляет запрос с сформированным промптом.
-        """
         prompt = indicators_calculation.construct_prompt(context)
         headers = {"Content-Type": "application/json"}
         data = {
@@ -54,29 +51,21 @@ class IndicatorsCalculation:
 
         def sync_request():
             try:
-                response = requests.post(
+                resp = requests.post(
                     self.url,
                     headers=headers,
                     json=data,
                     cert=(self.client_cert, self.client_key),
                     verify=self.ca_cert,
                 )
-                if response.status_code == 200:
-                    response_json = response.json()
-                    return response_json.get("response", "")
-                else:
-                    logger.error(
-                        "Ошибка запроса: , ответ: ",
-                        response.status_code,
-                        response.text,
-                    )
-                    return None
-            except requests.exceptions.RequestException as e:
-                logger.error("Ошибка соединения при запросе: ", e)
+                resp.raise_for_status()
+                return resp.json().get("response", "")
+            except Exception as e:
+                logger.error("Ошибка соединения при запросе: {}", e)
                 return None
 
-        result = await asyncio.to_thread(sync_request)
-        return result
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, sync_request)
 
     async def process_find_indicators(self, items):
         """
