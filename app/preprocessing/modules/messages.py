@@ -2,7 +2,6 @@
 
 from fastapi import Request
 
-from app.common.api.llm_gateway import llm_gateway
 from app.common.db.database import (
     Territory,
     Group,
