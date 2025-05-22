@@ -26,6 +26,8 @@ class EffectsCalculation:
         score_df = score_df.reset_index()
         score_df['total_score'] = score_df['total_score'].round(2)
         effects = await effects_api.get_evaluated_territories(scenario_id, token)
+        if effects is None:
+            return None
         effects = effects.merge(score_df[['services', 'total_score']], left_on='name', right_on='services', how='left')
         effects['total_score'].fillna(0, inplace=True)
         services_data = await urban_db_api.get_services_for_groups()

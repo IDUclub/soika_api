@@ -1,3 +1,4 @@
+from fastapi import HTTPException
 from loguru import logger
 import pandas as pd
 import aiohttp
@@ -23,13 +24,43 @@ class EffectsAPI:
             logger.info("EffectsAPI session closed.")
 
     async def get_evaluated_territories(self, scenario_id: int, token: str):
-        api_url = f"{self.url}/effects/provision_data?project_scenario_id={scenario_id}&scale_type=Контекст"
-        logger.info(f"Collecting scenario effects from API: {api_url}")
+        api_url = (
+            f"{self.url}/effects/provision_data"
+            f"?project_scenario_id={scenario_id}&scale_type=Контекст"
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        logger.info(f"GET {api_url}")
 
-        headers = {'Authorization': f'Bearer {token}'}
-        json_data = await self.handler.request("GET", api_url, session=self.session, headers=headers)
-        logger.info(f"Effects for context for scenario {scenario_id} successfully fetched from API.")
-        effects = pd.DataFrame(json_data)
-        return effects
+        try:
+            json_data = await self.handler.request(
+                "GET",
+                api_url,
+                session=self.session,
+                headers=headers,
+            )
+            logger.success(f"Fetched effects for scenario {scenario_id}")
+            return pd.DataFrame(json_data)
+
+        except HTTPException as e:
+            if e.status_code == 404:
+                logger.warning(f"No data for {scenario_id}, triggering evaluation")
+
+                eval_url = f"{self.url}/effects/evaluate"
+                await self.handler.request(
+                    "POST",
+                    eval_url,
+                    session=self.session,
+                    headers=headers,
+                    params={"project_scenario_id": scenario_id},
+                )
+                logger.success(f"Triggered evaluation for scenario {scenario_id}")
+                return None
+
+            logger.exception(f"Error fetching effects for {scenario_id}")
+            raise
+
+        except Exception:
+            logger.exception(f"Unexpected error for scenario {scenario_id}")
+            raise
 
 effects_api = EffectsAPI(config)
