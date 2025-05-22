@@ -576,41 +576,25 @@ class MessagesCalculation:
         }
 
     @staticmethod
+    @staticmethod
     async def determine_emotion_for_unprocessed_messages_func():
         async with database.session() as session:
             query = select(Message).where(Message.is_processed == False)
             result = await session.execute(query)
             messages = result.scalars().all()
-
             if not messages:
                 return {"detail": "No unprocessed messages found."}
-
             total_messages = len(messages)
             count_updated = 0
-
             for msg in messages:
-                raw = await llm_gateway.post(
-                    "/soika_models/extract_emotions",
-                    json={"text": msg.text}
-                )
-
-                if not isinstance(raw, list) or not raw:
-                    raise HTTPException(502, f"Invalid LLM response: {raw!r}")
-
-                label = raw[0].get('label')
-                if not isinstance(label, str):
-                    raise HTTPException(502, f"Unexpected label type: {label!r}")
-
+                label = await messages_calculation.classify_emotion(msg.text)
                 emotion_query = select(Emotion).where(Emotion.name == label)
                 emotion_result = await session.execute(emotion_query)
                 emotion_obj = emotion_result.scalar_one_or_none()
-
                 if emotion_obj:
                     msg.emotion_id = emotion_obj.emotion_id
                     count_updated += 1
-
             await session.commit()
-
         return {"detail": f"Processed {count_updated} messages out of {total_messages}."}
 
     @staticmethod
