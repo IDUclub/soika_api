@@ -1,6 +1,5 @@
 import asyncio
 import csv
-import sys
 from io import StringIO
 from shapely.geometry import Point
 from shapely import wkt
@@ -10,15 +9,6 @@ import logging
 from loguru import logger as loglogger
 
 logger = logging.getLogger(__name__)
-
-loglogger.add(
-    sys.stderr,
-    level="INFO",
-    encoding="utf-8",
-    colorize=True,      # если хотите цветные логи
-    backtrace=True,
-    diagnose=True,
-)
 
 async def read_csv_to_dict(file) -> list[dict]:
     """
