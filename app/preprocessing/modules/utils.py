@@ -6,6 +6,7 @@ from shapely import wkt
 from tqdm import tqdm
 import osmnx as ox
 import logging
+from loguru import logger as loglogger
 
 logger = logging.getLogger(__name__)
 
@@ -39,18 +40,22 @@ def parse_geometry_str(geom_str: str) -> Point:
         raise Exception(f"Неверный формат геометрии '{geom_str}'. Ошибка: {e}")
 
 
-async def gather_with_progress(tasks: list, description: str = "В процессе") -> list:
+async def gather_with_progress(tasks: list, description: str = "Processing") -> list:
     """
-    Выполняет асинхронное выполнение списка задач с отображением прогресс-бара.
+    Выполняет асинхронное выполнение списка задач с отображением прогресс-бара
+    и логированием через logger.info().
     """
-    pbar = tqdm(total=len(tasks), desc=description)
+    total = len(tasks)
+    pbar = tqdm(total=total, desc=description)
 
-    async def run_task(task):
+    async def run_task(idx: int, task):
         result = await task
         pbar.update(1)
+        loglogger.info(f"{description}: task {idx}/{total} completed")
         return result
 
-    results = await asyncio.gather(*(run_task(task) for task in tasks))
+    wrapped = (run_task(i + 1, task) for i, task in enumerate(tasks))
+    results = await asyncio.gather(*wrapped)
     pbar.close()
     return results
 

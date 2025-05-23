@@ -40,9 +40,6 @@ class IndicatorsCalculation:
         return prompt
 
     async def describe_async(self, context):
-        """
-        Асинхронно отправляет запрос с сформированным промптом.
-        """
         prompt = indicators_calculation.construct_prompt(context)
         headers = {"Content-Type": "application/json"}
         data = {
@@ -54,29 +51,21 @@ class IndicatorsCalculation:
 
         def sync_request():
             try:
-                response = requests.post(
+                resp = requests.post(
                     self.url,
                     headers=headers,
                     json=data,
                     cert=(self.client_cert, self.client_key),
                     verify=self.ca_cert,
                 )
-                if response.status_code == 200:
-                    response_json = response.json()
-                    return response_json.get("response", "")
-                else:
-                    logger.error(
-                        "Ошибка запроса: , ответ: ",
-                        response.status_code,
-                        response.text,
-                    )
-                    return None
-            except requests.exceptions.RequestException as e:
-                logger.error("Ошибка соединения при запросе: ", e)
+                resp.raise_for_status()
+                return resp.json().get("response", "")
+            except Exception as e:
+                logger.error("Ошибка соединения при запросе: {}", e)
                 return None
 
-        result = await asyncio.to_thread(sync_request)
-        return result
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, sync_request)
 
     async def process_find_indicators(self, items):
         """
@@ -132,6 +121,7 @@ class IndicatorsCalculation:
         4) Для каждого сообщения -> индикаторы -> сохраняем в message_indicator.
         5) Возвращаем инфо о количестве связей.
         """
+        logger.info("Starting extract_indicators (top={})", top)
         async with database.session() as session:
             query = select(Message).where(Message.is_processed == False)
             if top is not None and top > 0:
@@ -139,25 +129,33 @@ class IndicatorsCalculation:
 
             result = await session.execute(query)
             messages = result.scalars().all()
+            logger.info("Fetched {} unprocessed messages", len(messages))
 
             if not messages:
+                logger.info("No unprocessed messages found, exiting")
                 return {
                     "detail": "No unprocessed messages found.",
                     "processed_messages": 0,
                 }
-            data = []
-            for msg in messages:
-                data.append({"message_id": msg.message_id, "text": msg.text})
 
+            data = [{"message_id": msg.message_id, "text": msg.text} for msg in messages]
             df = await asyncio.to_thread(pd.DataFrame, data)
+            logger.info("Built DataFrame for processing: {} rows", len(df))
 
             indicators_list = await self.get_indicators(df)
             total_links_created = 0
 
             for i, row in df.iterrows():
                 mid = row["message_id"]
+                logger.info(
+                    "Processing message {}: {}",
+                    mid,
+                    row["text"].replace("\n", " ")[:50]
+                )
+
                 found_inds = indicators_list[i]
                 if not found_inds:
+                    logger.warning("No indicators found for message {}", mid)
                     continue
 
                 for ind_name in found_inds:
@@ -169,22 +167,30 @@ class IndicatorsCalculation:
                         indicator_obj = Indicator(name=ind_name)
                         session.add(indicator_obj)
                         await session.flush()
+                        logger.info("Created new Indicator '{}'", ind_name)
 
                     link_stmt = select(MessageIndicator).where(
                         MessageIndicator.message_id == mid,
                         MessageIndicator.indicator_id == indicator_obj.indicator_id,
                     )
                     link_res = await session.execute(link_stmt)
-                    link_exists = link_res.scalar_one_or_none()
-
-                    if not link_exists:
-                        link = MessageIndicator(
-                            message_id=mid, indicator_id=indicator_obj.indicator_id
-                        )
-                        session.add(link)
+                    if not link_res.scalar_one_or_none():
+                        session.add(MessageIndicator(
+                            message_id=mid,
+                            indicator_id=indicator_obj.indicator_id
+                        ))
                         total_links_created += 1
+                        logger.debug(
+                            "Linked message {} indicator '{}'",
+                            mid,
+                            ind_name
+                        )
 
             await session.commit()
+            logger.info(
+                "Committed session: created {} message_indicator links",
+                total_links_created
+            )
 
         return {
             "detail": f"Created {total_links_created} message_indicator records.",

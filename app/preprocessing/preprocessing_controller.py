@@ -1,4 +1,5 @@
-from fastapi import APIRouter, UploadFile, Request, File, Query, status
+from fastapi import APIRouter, UploadFile, Request, File, Query, status, BackgroundTasks
+from fastapi.responses import JSONResponse
 from app.preprocessing.preprocessing import PreprocessingService
 from app.preprocessing.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
 from app.preprocessing.dto.territory_dto import TerritoryCreate
@@ -148,10 +149,27 @@ async def add_named_objects(file: UploadFile = File(...)) -> UploadNamedObjectsR
     status_code=201,
     response_model=ExtractNamedObjectsResponse
 )
+@named_objects_router.post(
+    "/extract_named_objects",
+    status_code=202
+)
 async def extract_named_objects(
+    background_tasks: BackgroundTasks,
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
-) -> ExtractNamedObjectsResponse:
-    return await PreprocessingService.extract_named_objects(top)
+) -> JSONResponse:
+    """
+    Запускает извлечение именованных сущностей в фоне
+    и сразу отдаёт клиенту подтверждение.
+    """
+
+    background_tasks.add_task(PreprocessingService.extract_named_objects, top)
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "processing",
+            "message": "NER extraction has started in background "
+        }
+    )
 
 @named_objects_router.delete("/named_objects", response_model=DetailResponse)
 async def delete_named_objects() -> DetailResponse:
@@ -176,13 +194,24 @@ async def add_indicators(payload: IndicatorCreate) -> CreateIndicatorResponse:
 
 @indicators_router.post(
     "/extract_indicators",
-    status_code=201,
-    response_model=ExtractIndicatorsResponse
+    status_code=202
 )
 async def extract_indicators(
+    background_tasks: BackgroundTasks,
     top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
-) -> ExtractIndicatorsResponse:
-    return await PreprocessingService.extract_indicators(top)
+) -> JSONResponse:
+    """
+    Запускает извлечение индикаторов в фоне и сразу возвращает статус обработки.
+    """
+    background_tasks.add_task(PreprocessingService.extract_indicators, top)
+
+    return JSONResponse(
+        status_code=202,
+        content={
+            "status": "processing",
+            "message": "Indicator extraction is started in the background"
+        }
+    )
 
 @indicators_router.delete("/indicators", response_model=DetailResponse)
 async def delete_indicators() -> DetailResponse:
