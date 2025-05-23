@@ -151,7 +151,7 @@ async def add_named_objects(file: UploadFile = File(...)) -> UploadNamedObjectsR
 )
 @named_objects_router.post(
     "/extract_named_objects",
-    status_code=202  # сразу возвращаем, что задача принята
+    status_code=202
 )
 async def extract_named_objects(
     background_tasks: BackgroundTasks,
@@ -167,8 +167,7 @@ async def extract_named_objects(
         status_code=202,
         content={
             "status": "processing",
-            "message": "Извлечение именованных объектов запущено в фоне. "
-                       "Повторите запрос позже для получения результата."
+            "message": "NER extraction has started in background "
         }
     )
 
@@ -195,7 +194,7 @@ async def add_indicators(payload: IndicatorCreate) -> CreateIndicatorResponse:
 
 @indicators_router.post(
     "/extract_indicators",
-    status_code=202  # 202 Accepted — задача принята в работу
+    status_code=202
 )
 async def extract_indicators(
     background_tasks: BackgroundTasks,
@@ -210,7 +209,7 @@ async def extract_indicators(
         status_code=202,
         content={
             "status": "processing",
-            "message": "Извлечение индикаторов запущено в фоне. Повторите запрос позже для получения результата."
+            "message": "Indicator extraction is started in the background"
         }
     )
 
