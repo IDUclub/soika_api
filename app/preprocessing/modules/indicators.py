@@ -46,10 +46,11 @@ class IndicatorsCalculation:
         prompt = indicators_calculation.construct_prompt(context)
         headers = {"Content-Type": "application/json"}
         data = {
-            "model": "llama3.3",
-            "temperature": 0.1,
+            "model": "deepseek-r1:32b",
+            "temperature": 0.0,
             "prompt": prompt,
             "stream": False,
+            "think":False
         }
 
         def sync_request():
