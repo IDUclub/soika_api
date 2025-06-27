@@ -1,6 +1,7 @@
 from typing import Annotated
 from fastapi import Depends, APIRouter
 from loguru import logger
+from fastapi.responses import JSONResponse
 from app.risk_calculation.dto.project_territory_dto import ProjectTerritoryRequest
 from app.risk_calculation.dto.scenario_territory_dto import ScenarioTerritoryRequest
 from app.risk_calculation.dto.time_series_dto import TimeSeriesRequest
@@ -61,9 +62,24 @@ async def get_named_objects(
 
 @calculation_router.get('/risk_effects', response_model=EffectsResponse)
 async def get_risks_for_effects(
-    dto: Annotated[ScenarioTerritoryRequest, Depends(ScenarioTerritoryRequest)],
-    token: str = Depends(auth.verify_token)
-) -> EffectsResponse:
-    logger.info(f"Controller: Received risk effects request with territory_id={dto.territory_id}, project_id={dto.project_id}, scenario_id={dto.scenario_id}")
-    response = await RiskCalculationService.get_risk_effects(dto.territory_id, dto.project_id, dto.scenario_id, token)
-    return response
+    dto: ScenarioTerritoryRequest = Depends(),
+    token: str = Depends(auth.verify_token),
+    service: RiskCalculationService = Depends(),
+):
+    result = await service.get_risk_effects(
+        dto.territory_id, dto.project_id, dto.scenario_id, token
+    )
+
+    if result is None:
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "processing",
+                "message": (
+                    f"Effects for scenario ID {dto.scenario_id} have started in effects API. "
+                    "Please, retry in few minutes."
+                )
+            }
+        )
+
+    return result
