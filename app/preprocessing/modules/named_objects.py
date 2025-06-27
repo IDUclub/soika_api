@@ -64,10 +64,11 @@ class NERCalculation:
         prompt = self.construct_prompt(context)
         headers = {"Content-Type": "application/json"}
         data = {
-            "model": "deepseek-r1:70b",
+            "model": "deepseek-r1:32b",
             "temperature": 0.1,
             "prompt": prompt,
             "stream": False,
+            "think":False
         }
 
         def sync_request():
