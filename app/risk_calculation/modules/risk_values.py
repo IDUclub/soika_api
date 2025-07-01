@@ -9,6 +9,8 @@ from app.common.modules.constants import CONSTANTS
 from app.common.api.urbandb_api_gateway import urban_db_api
 from app.common.api.values_api_gateway import values_api
 
+from app.common.exceptions.http_exception_wrapper import http_exception
+
 class RiskValues:
     @staticmethod
     async def get_level_4_territory(territory_id):
@@ -106,8 +108,17 @@ class RiskValues:
         series_dict = {
             tid: series.rename(tid)
             for tid, series in zip(municipal_districts_list, value_data)
+            if series is not None
         }
+        if not series_dict:
+            raise http_exception(
+                404,
+                "No values data for project",
+                None,
+                None
+            )
         value_data = pd.concat(series_dict.values(), axis=1)
+        logger.info(f"Values data collected for {len(series_dict)}/{len(municipal_districts_list)} municipalities in context")
         value_series = value_data.mean(axis=1)
         values_to_risk_table = pd.concat([risk_series, value_series], axis=1)
         values_to_risk_table.columns = ['Общественный резонанс', 'Поддержка ценностей']
