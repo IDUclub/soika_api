@@ -50,7 +50,7 @@ class RiskProvision:
             )
         )
         combined_df = combined_df.replace({np.nan: None})
-        logger.info(combined_df)
+        combined_df = combined_df[combined_df['category'].notna()]
         response = {'provision_to_risk_table': combined_df.to_dict(orient='records')}
         logger.info(f"Table response generated")
         return response
