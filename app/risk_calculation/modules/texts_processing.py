@@ -2,7 +2,7 @@ import geopandas as gpd
 import pandas as pd
 import numpy as np
 from loguru import logger
-from sqlalchemy import select
+from sqlalchemy import select, outerjoin
 from geoalchemy2.shape import to_shape
 from geoalchemy2.functions import ST_Intersects, ST_GeomFromText
 
@@ -33,11 +33,18 @@ class TextProcessing:
                 .join(Indicator, MessageIndicator.indicator_id == Indicator.indicator_id)
                 .join(MessageService, Message.message_id == MessageService.message_id)
                 .join(Service, MessageService.service_id == Service.service_id)
-                .join(Group, Message.group_id == Group.group_id)
-                .join(GroupTerritory, Group.group_id == GroupTerritory.group_id)
-                .join(Territory, GroupTerritory.territory_id == Territory.territory_id)
+                .outerjoin(Group, Message.group_id == Group.group_id)
+                .outerjoin(
+                    GroupTerritory,
+                    Group.group_id == GroupTerritory.group_id
+                )
+                .outerjoin(
+                    Territory,
+                    GroupTerritory.territory_id == Territory.territory_id
+                )
                 .where(
-                    Message.type != "post",  # TODO: стоит поглядеть, как посты влияют на результат
+                    Message.type != "post",
+                    Message.geometry.is_not(None),
                     ST_Intersects(
                         Message.geometry,
                         ST_GeomFromText(territory_wkt, messages_crs)
