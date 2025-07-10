@@ -24,3 +24,4 @@ asyncpg~=0.30.0
 requests~=2.32.3
 IDU-config~=1.0.0
 python-multipart~=0.0.5
+pymorphy3

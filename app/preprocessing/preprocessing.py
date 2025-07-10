@@ -3,6 +3,7 @@ from fastapi import Request
 from app.preprocessing.modules.territories import territories_calculation
 from app.preprocessing.modules.groups import groups_calculation
 from app.preprocessing.modules.messages import messages_calculation
+from app.preprocessing.modules.geocoder import geocoder
 from app.preprocessing.modules.services import services_calculation
 from app.preprocessing.modules.indicators import indicators_calculation
 from app.preprocessing.modules.named_objects import ner_calculation
@@ -71,10 +72,10 @@ class PreprocessingService:
         return await messages_calculation.determine_emotion_for_unprocessed_messages_func()
 
     @staticmethod
-    async def extract_addresses(device: str, top: int, territory_name: str):
+    async def extract_addresses(top: int, territory_name: str):
         logger.info("Service: Extracting addresses for unprocessed messages")
-        return await messages_calculation.extract_addresses_for_unprocessed_messages_func(
-            device=device, top=top, input_territory_name=territory_name
+        return await geocoder.extract_addresses_from_texts(
+           top=top, input_territory_name=territory_name
         )
 
     @staticmethod

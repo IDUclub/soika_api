@@ -27,6 +27,18 @@ class UrbanDBAPI:
             self.session = None
             logger.info("UrbanDBAPI session closed.")
 
+    async def get_territory_by_name(self, territory_name: str):
+        api_url = (
+            f"{self.url}/v1/all_territories_without_geometry"
+            f"?get_all_levels=true&name={territory_name}&cities_only=false&ordering=asc"
+        )
+        logger.info(f"Fetching territories from API: {api_url}")
+        json_data = await self.handler.request("GET", api_url, session=self.session)
+        territory_id = json_data[0]["territory_id"]
+        found_territory_name = json_data[0]["name"]
+        logger.info(f"For territory {territory_name} found territory_id {territory_id} ({found_territory_name}).")
+        return territory_id
+
     async def get_child_territories(self, territory_id: int, page_num: int, page_size: int):
         api_url = (
             f"{self.url}/v1/territories?parent_id={territory_id}"
