@@ -121,11 +121,10 @@ async def determine_emotion() -> DetailResponse:
     response_model=AddressesExtractionResponse
 )
 async def extract_addresses(
-    device: str = "cpu",
     top: int = Query(None, description="Сколько сообщений обрабатывать (None = все)"),
     territory_name: str = Query("Ленинградская область", description="Название региона для геокодирования")
 ) -> AddressesExtractionResponse:
-    return await PreprocessingService.extract_addresses(device, top, territory_name)
+    return await PreprocessingService.extract_addresses(top, territory_name)
 
 @messages_router.delete("/messages", response_model=DetailResponse)
 async def delete_messages() -> DetailResponse:
