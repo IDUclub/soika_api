@@ -112,8 +112,11 @@ async def add_emotions(payload: EmotionCreate) -> CreateEmotionResponse:
     status_code=201,
     response_model=DetailResponse
 )
-async def determine_emotion() -> DetailResponse:
-    return await PreprocessingService.determine_emotion()
+async def determine_emotion(
+    territory_id: int = Query(None, description="ID территории для обработки сообщений"),
+    top: int = Query(None, description="Сколько сообщений обрабатывать (None - все)")
+) -> DetailResponse:
+    return await PreprocessingService.determine_emotion(territory_id, top)
 
 @messages_router.post(
     "/extract_addresses",
@@ -121,10 +124,11 @@ async def determine_emotion() -> DetailResponse:
     response_model=AddressesExtractionResponse
 )
 async def extract_addresses(
-    top: int = Query(None, description="Сколько сообщений обрабатывать (None = все)"),
-    territory_name: str = Query("Ленинградская область", description="Название региона для геокодирования")
+    territory_id: int = Query(None, description="ID территории для обработки сообщений"),
+    top: int = Query(None, description="Сколько сообщений обрабатывать (None - все)"),
+    territory_name: str = Query("Ленинградская область", description="Название территории для геокодирования")
 ) -> AddressesExtractionResponse:
-    return await PreprocessingService.extract_addresses(top, territory_name)
+    return await PreprocessingService.extract_addresses(top, territory_name, territory_id)
 
 @messages_router.delete("/messages", response_model=DetailResponse)
 async def delete_messages() -> DetailResponse:
@@ -154,14 +158,15 @@ async def add_named_objects(file: UploadFile = File(...)) -> UploadNamedObjectsR
 )
 async def extract_named_objects(
     background_tasks: BackgroundTasks,
-    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
+    territory_id: int = Query(None, description="ID территории для обработки сообщений"),
+    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None - все)")
 ) -> JSONResponse:
     """
     Запускает извлечение именованных сущностей в фоне
     и сразу отдаёт клиенту подтверждение.
     """
 
-    background_tasks.add_task(PreprocessingService.extract_named_objects, top)
+    background_tasks.add_task(PreprocessingService.extract_named_objects, territory_id, top)
     return JSONResponse(
         status_code=202,
         content={
@@ -197,12 +202,13 @@ async def add_indicators(payload: IndicatorCreate) -> CreateIndicatorResponse:
 )
 async def extract_indicators(
     background_tasks: BackgroundTasks,
-    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
+    territory_id: int = Query(None, description="ID территории для обработки сообщений"),
+    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None - все)")
 ) -> JSONResponse:
     """
     Запускает извлечение индикаторов в фоне и сразу возвращает статус обработки.
     """
-    background_tasks.add_task(PreprocessingService.extract_indicators, top)
+    background_tasks.add_task(PreprocessingService.extract_indicators, territory_id, top)
 
     return JSONResponse(
         status_code=202,
@@ -231,6 +237,7 @@ async def get_message_service_pairs() -> MessageServicePairsResponse:
     response_model=ExtractServicesResponse
 )
 async def extract_services(
-    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None = все)")
+    territory_id: int = Query(None, description="ID территории для обработки сообщений"),
+    top: int = Query(None, description="Сколько сообщений обрабатывать за один вызов (None - все)")
 ) -> ExtractServicesResponse:
-    return await PreprocessingService.extract_services(top)
+    return await PreprocessingService.extract_services(territory_id, top)

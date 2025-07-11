@@ -60,6 +60,20 @@ class Message(Base):
     location = Column(String)
     is_processed = Column(Boolean)
 
+class MessageStatus(Base):
+    __tablename__ = "message_status_data"
+    message_status_id = Column(Integer, primary_key=True, nullable=False)
+    process_status = Column(Boolean)
+    message_id = Column(
+        Integer, ForeignKey("message.message_id"), primary_key=True, nullable=False)
+    process_status_id = Column(
+        Integer, ForeignKey("process_status_dict.process_status_id"), primary_key=True, nullable=False)
+    
+class Status(Base):
+    __tablename__ = "process_status_dict"
+    process_status_id = Column(Integer, primary_key=True, nullable=False)
+    process_status_name = Column(String)
+
 
 class NamedObject(Base):
     __tablename__ = "named_object"

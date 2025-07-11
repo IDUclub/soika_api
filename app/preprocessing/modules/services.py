@@ -1,13 +1,15 @@
 import asyncio
+from rapidfuzz import fuzz
 from sqlalchemy import select
+
+
+from app.common.db.db_engine import database
+from app.common.modules.constants import CONSTANTS
+from app.preprocessing.modules import utils
 from app.common.db.database import (
-    Message,
     Service,
     MessageService
 )
-from app.common.db.db_engine import database
-from app.common.modules.constants import CONSTANTS
-from rapidfuzz import fuzz
 
 class ServicesCalculation:
     @staticmethod
@@ -92,22 +94,27 @@ class ServicesCalculation:
         detected_services = self.replace_service_names(detected_services, ru_service_names)
         return detected_services
 
-    async def extract_services_in_messages(self, top: int = None) -> dict:
+    async def extract_services_in_messages(
+        self,
+        territory_id: int | None = None,
+        top: int | None = None,
+    ) -> dict:
         """
-        1) Находит все сообщения is_processed=False (огранич. top, если нужно).
+        1) Берёт сообщения, для которых step 'services_processed' ещё не отмечен
+        (при необходимости ограничивает top).
         2) Для каждого сообщения вызывает detect_services(text).
-        3) По каждому найденному сервису ищет или создаёт запись в Service,
-           затем создаёт запись в MessageService.
-        4) Возвращает инфо о количестве созданных связей.
+        3) Для каждого найденного сервиса ищет/создаёт запись в Service и связь
+        MessageService.
+        4) Ставит/создаёт статус services_processed в MessageStatus.
+        5) Возвращает статистику созданных связей.
         """
         async with database.session() as session:
-            query = select(Message).where(Message.is_processed == False)
-            if top is not None and top > 0:
-                query = query.limit(top)
-
-            result = await session.execute(query)
-            messages = result.scalars().all()
-
+            messages = await utils.get_unprocessed_texts(
+                session,
+                process_type="services_processed",
+                top=top,
+                territory_id=territory_id,
+            )
             if not messages:
                 return {
                     "detail": "No unprocessed messages found.",
@@ -118,31 +125,36 @@ class ServicesCalculation:
 
             for msg in messages:
                 services_found = await self.detect_services(msg.text)
-                if not services_found:
-                    continue
-                for serv_name in services_found:
-                    stmt = select(Service).where(Service.name == serv_name)
-                    existing = await session.execute(stmt)
-                    service_obj = existing.scalar_one_or_none()
-
-                    if not service_obj:
-                        service_obj = Service(name=serv_name)
-                        session.add(service_obj)
-                        await session.flush()
-
-                    link_stmt = select(MessageService).where(
-                        MessageService.message_id == msg.message_id,
-                        MessageService.service_id == service_obj.service_id,
-                    )
-                    link_res = await session.execute(link_stmt)
-                    link_exists = link_res.scalar_one_or_none()
-
-                    if not link_exists:
-                        link = MessageService(
-                            message_id=msg.message_id, service_id=service_obj.service_id
+                if services_found:
+                    for serv_name in services_found:
+                        service_obj = await session.scalar(
+                            select(Service).where(Service.name == serv_name)
                         )
-                        session.add(link)
-                        total_links_created += 1
+                        if not service_obj:
+                            service_obj = Service(name=serv_name)
+                            session.add(service_obj)
+                            await session.flush()            # нужен id
+
+                        link_exists = await session.scalar(
+                            select(MessageService).where(
+                                MessageService.message_id == msg.message_id,
+                                MessageService.service_id == service_obj.service_id,
+                            )
+                        )
+                        if not link_exists:
+                            session.add(
+                                MessageService(
+                                    message_id=msg.message_id,
+                                    service_id=service_obj.service_id,
+                                )
+                            )
+                            total_links_created += 1
+
+                await utils.update_message_status(
+                    session=session,
+                    message_id=msg.message_id,
+                    process_type="services_processed",
+                )
 
             await session.commit()
 
@@ -168,8 +180,8 @@ class ServicesCalculation:
         return {"message_service_pairs": services_list}
 
     @staticmethod
-    async def extract_services_func(top: int = None):
-        result = await services_calculation.extract_services_in_messages(top=top)
+    async def extract_services_func(territory_id: int = None, top: int = None):
+        result = await services_calculation.extract_services_in_messages(territory_id=territory_id, top=top)
         return result
     
 services_calculation = ServicesCalculation()

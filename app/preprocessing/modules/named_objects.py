@@ -403,28 +403,32 @@ class NERCalculation:
     def build_data(msgs):
         data = []
         for msg in msgs:
+            geom = to_shape(msg.geometry) if msg.geometry else None
             data.append({
                 "message_id": msg.message_id,
                 "text": msg.text,
                 "Location": msg.location,
-                "geometry": wkt.dumps(msg.geometry) if msg.geometry else None,
+                "geometry": wkt.dumps(geom) if geom else None,
             })
         return pd.DataFrame(data)
     
-    async def extract_named_objects(self, top: int = None) -> dict:
+    async def extract_named_objects(self, territory_id: int = None, top: int = None) -> dict:
         """
-        1) Ищет все сообщения, у которых is_processed=False (с ограничением top, если задано).
-        2) Формирует DataFrame (message_id, text, Location, geometry=WKT).
-        3) Вызывает process_texts(df) для получения GeoDataFrame с извлечёнными именованными объектами.
-        4) Для каждого результата создаёт NamedObject и восстанавливает связи с исходными сообщениями через MessageNamedObject.
-        5) Коммитит изменения и возвращает информацию о числе добавленных записей.
+        1) Ищет все сообщения, у которых process_type='named_objects_processed' ещё не True
+        (ограничение top, если задано).
+        2) Формирует DataFrame (message_id, text, location, geometry=WKT).
+        3) Вызывает process_texts(df) → GeoDataFrame с извлечёнными именованными объектами.
+        4) Для каждого результата создаёт NamedObject и связи MessageNamedObject.
+        5) Ставит/создаёт статус named_objects_processed в MessageStatus.
+        6) Коммитит изменения и возвращает число добавленных записей.
         """
         async with database.session() as session:
-            query = select(Message).where(Message.is_processed == False)
-            if top is not None and top > 0:
-                query = query.limit(top)
-            result = await session.execute(query)
-            messages = result.scalars().all()
+            messages = await utils.get_unprocessed_texts(
+                session,
+                process_type="named_objects_processed",
+                top=top,
+                territory_id=territory_id,
+            )
             if not messages:
                 return {
                     "detail": "No unprocessed messages found.",
@@ -434,81 +438,49 @@ class NERCalculation:
             df = await asyncio.to_thread(ner_calculation.build_data, messages)
             result_gdf = await ner_calculation.process_texts(df)
             if result_gdf.empty:
+                for msg in messages:
+                    await utils.update_message_status(
+                        session=session,
+                        message_id=msg.message_id,
+                        process_type="named_objects_processed",
+                    )
+                await session.commit()
                 return {
                     "detail": "NER extraction returned no named objects.",
                     "processed_messages": len(messages),
                 }
 
             named_objects_created = 0
-            logger.info(f"GeoDataFrame:\n{result_gdf}")
-            logger.info(f"Колонки: {result_gdf.columns}")
-            logger.info(f"message_id: {result_gdf.message_id}")
-
             for _, row in result_gdf.iterrows():
                 mid_list = row.get("message_id")
                 if not mid_list or not isinstance(mid_list, list):
-                    logger.info("Поле message_id отсутствует или не является списком, пропускаем строку.")
                     continue
 
                 primary_mid = mid_list[0]
                 msg = next((m for m in messages if m.message_id == primary_mid), None)
                 if not msg:
-                    logger.info(f"Не найдено исходное сообщение для message_id: {primary_mid}")
                     continue
 
-                object_name = row.get("object_name")
+                object_name          = row.get("object_name")
+                object_description   = "; ".join(map(str, row.get("object_description") or [])) or None
+                raw_osm_id           = row.get("osm_id")
+                first_osm            = (raw_osm_id[0] if isinstance(raw_osm_id, list) else raw_osm_id) or 0
+                try:
+                    osm_id = int(float(first_osm)) if first_osm not in ("", None) else 0
+                except Exception:
+                    osm_id = 0
+                raw_osm_name         = row.get("osm_name")
+                accurate_location    = (raw_osm_name[0] if isinstance(raw_osm_name, list) else raw_osm_name) or None
+                raw_osm_tag          = row.get("osm_tag")
+                osm_tag              = (raw_osm_tag[0] if isinstance(raw_osm_tag, list) else raw_osm_tag) or None
+                count                = row.get("count")
+                estimated_location   = msg.location
+                text_id              = primary_mid
+                geom                 = row.get("geometry")
+                ewkt_geometry        = utils.to_ewkt(geom) if geom else None
 
-                raw_obj_desc = row.get("object_description")
-                if isinstance(raw_obj_desc, list):
-                    object_description = "; ".join(map(str, raw_obj_desc))
-                else:
-                    object_description = str(raw_obj_desc) if raw_obj_desc is not None else None
-
-                raw_osm_id = row.get("osm_id")
-                osm_id = 0
-                if raw_osm_id:
-                    if isinstance(raw_osm_id, list):
-                        first_osm = raw_osm_id[0] if raw_osm_id else ""
-                    else:
-                        first_osm = raw_osm_id
-                    if first_osm in [None, "", ""]:
-                        osm_id = 0
-                    else:
-                        try:
-                            osm_id = int(float(first_osm))
-                        except Exception:
-                            osm_id = 0
-
-                raw_osm_name = row.get("osm_name")
-                if raw_osm_name:
-                    if isinstance(raw_osm_name, list):
-                        accurate_location = str(raw_osm_name[0]) if raw_osm_name else ""
-                    else:
-                        accurate_location = str(raw_osm_name)
-                else:
-                    accurate_location = None
-
-                count = row.get("count")
-
-                osm_tag = row.get("osm_tag")
-                raw_osm_tag = row.get("osm_tag")
-                if raw_osm_tag:
-                    if isinstance(raw_osm_tag, list):
-                        osm_tag = str(raw_osm_tag[0]) if raw_osm_tag else ""
-                    else:
-                        osm_tag = str(raw_osm_tag)
-                else:
-                    osm_tag = None
-
-                estimated_location = msg.location
-
-                text_id = primary_mid
-
-                geom = row.get("geometry")
-                if geom:
-                    ewkt_geometry = utils.to_ewkt(geom)
-                else:
-                    raise Exception("Отсутствует значение геометрии")
+                if ewkt_geometry is None:
+                    continue
 
                 named_obj = NamedObject(
                     object_name=object_name,
@@ -523,20 +495,27 @@ class NERCalculation:
                     is_processed=False,
                 )
                 session.add(named_obj)
-                await session.flush() 
+                await session.flush()  # нужен id для связей
 
                 for msg_id in mid_list:
                     if any(m.message_id == msg_id for m in messages):
-                        link = MessageNamedObject(
-                            message_id=msg_id,
-                            named_object_id=named_obj.named_object_id
+                        session.add(
+                            MessageNamedObject(
+                                message_id=msg_id,
+                                named_object_id=named_obj.named_object_id,
+                            )
                         )
-                        session.add(link)
-                    else:
-                        logger.info(f"Сообщение с id {msg_id} не найдено в исходном наборе")
                 named_objects_created += 1
 
+            for msg in messages:
+                await utils.update_message_status(
+                    session=session,
+                    message_id=msg.message_id,
+                    process_type="named_objects_processed",
+                )
+
             await session.commit()
+
         return {
             "detail": f"Created {named_objects_created} named_object records.",
             "processed_messages": len(messages),
@@ -703,8 +682,8 @@ class NERCalculation:
             raise HTTPException(status_code=400, detail=str(e))
 
     @staticmethod
-    async def extract_named_objects_func(top: int = None):
-        result = await ner_calculation.extract_named_objects(top=top)
+    async def extract_named_objects_func(territory_id: int = None, top: int = None):
+        result = await ner_calculation.extract_named_objects(territory_id=territory_id, top=top)
         return result
 
     @staticmethod

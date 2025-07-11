@@ -67,15 +67,15 @@ class PreprocessingService:
         return await messages_calculation.create_emotion_func(payload)
 
     @staticmethod
-    async def determine_emotion():
+    async def determine_emotion(territory_id: int, top: int):
         logger.info("Service: Determining emotion for unprocessed messages")
-        return await messages_calculation.determine_emotion_for_unprocessed_messages_func()
+        return await messages_calculation.determine_emotion_for_unprocessed_messages_func(territory_id=territory_id, top=top)
 
     @staticmethod
-    async def extract_addresses(top: int, territory_name: str):
+    async def extract_addresses(top: int, territory_name: str, territory_id: int):
         logger.info("Service: Extracting addresses for unprocessed messages")
         return await geocoder.extract_addresses_from_texts(
-           top=top, input_territory_name=territory_name
+           input_territory_name=territory_name, territory_id=territory_id, top=top  
         )
 
     @staticmethod
@@ -96,9 +96,9 @@ class PreprocessingService:
         return await ner_calculation.upload_named_objects_func(file)
 
     @staticmethod
-    async def extract_named_objects(top: int):
+    async def extract_named_objects(territory_id: int, top: int):
         logger.info("Service: Extracting named objects")
-        return await ner_calculation.extract_named_objects_func(top=top)
+        return await ner_calculation.extract_named_objects_func(territory_id=territory_id, top=top)
 
     @staticmethod
     async def delete_named_objects():
@@ -123,9 +123,9 @@ class PreprocessingService:
         return await indicators_calculation.create_indicator_func(payload)
 
     @staticmethod
-    async def extract_indicators(top: int):
+    async def extract_indicators(territory_id:int, top: int):
         logger.info("Service: Extracting indicators")
-        return await indicators_calculation.extract_indicators_func(top=top)
+        return await indicators_calculation.extract_indicators_func(territory_id=territory_id, top=top)
 
     @staticmethod
     async def delete_indicators():
@@ -145,6 +145,6 @@ class PreprocessingService:
         return await services_calculation.get_all_message_service_pairs()
 
     @staticmethod
-    async def extract_services(top: int):
+    async def extract_services(territory_id:int, top: int):
         logger.info("Service: Extracting services")
-        return await services_calculation.extract_services_func(top=top)
+        return await services_calculation.extract_services_func(territory_id=territory_id, top=top)

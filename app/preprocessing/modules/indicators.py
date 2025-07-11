@@ -3,7 +3,6 @@ import requests
 import pandas as pd
 from loguru import logger
 from app.common.db.database import (
-    Message,
     Indicator,
     MessageIndicator
 )
@@ -114,7 +113,7 @@ class IndicatorsCalculation:
         processed_indicators = await asyncio.to_thread(indicators_calculation.process_indicators, indicators)
         return processed_indicators
 
-    async def extract_indicators(self, top: int = None) -> dict:
+    async def extract_indicators(self, territory_id: int = None, top: int = None) -> dict:
         """
         1) Находит сообщения is_processed=False (огранич. top, если нужно).
         2) Для каждого собирает DF (message_id, text).
@@ -124,12 +123,11 @@ class IndicatorsCalculation:
         """
         logger.info("Starting extract_indicators (top={})", top)
         async with database.session() as session:
-            query = select(Message).where(Message.is_processed == False)
-            if top is not None and top > 0:
-                query = query.limit(top)
-
-            result = await session.execute(query)
-            messages = result.scalars().all()
+            messages = await utils.get_unprocessed_texts(
+                session,
+                process_type="indicators_processed",
+                top=top,
+                territory_id=territory_id)
             logger.info("Fetched {} unprocessed messages", len(messages))
 
             if not messages:
@@ -157,6 +155,11 @@ class IndicatorsCalculation:
                 found_inds = indicators_list[i]
                 if not found_inds:
                     logger.warning("No indicators found for message {}", mid)
+                    await utils.update_message_status(
+                        session=session,
+                        message_id=mid,
+                        process_type="indicators_processed"
+                    )
                     continue
 
                 for ind_name in found_inds:
@@ -186,6 +189,12 @@ class IndicatorsCalculation:
                             mid,
                             ind_name
                         )
+
+                await utils.update_message_status(
+                    session=session,
+                    message_id=mid,
+                    process_type="indicators_processed"
+                )
 
             await session.commit()
             logger.info(
@@ -224,8 +233,8 @@ class IndicatorsCalculation:
         return {"indicator_id": new_indicator.indicator_id, "name": new_indicator.name}
 
     @staticmethod
-    async def extract_indicators_func(top: int = None):
-        result = await indicators_calculation.extract_indicators(top=top)
+    async def extract_indicators_func(territory_id: int = None, top: int = None):
+        result = await indicators_calculation.extract_indicators(territory_id=territory_id, top=top)
         return result
 
     @staticmethod
