@@ -1,6 +1,5 @@
 import asyncio
 import requests
-from sqlalchemy import select
 from tqdm.asyncio import tqdm
 from typing import List, Dict, Any
 
@@ -13,7 +12,6 @@ from iduconfig import Config
 from app.common.db.db_engine import database
 from app.dependencies import config
 from app.preprocessing.modules import utils
-from app.common.db.database import Message
 from app.common.api.urbandb_api_gateway import urban_db_api
 from app.preprocessing.modules.models import models_initialization
 
@@ -118,13 +116,13 @@ class Geocoder:
         minx, miny, maxx, maxy = territory.total_bounds
         return f"{minx},{miny},{maxx},{maxy}"
 
-    async def extract_addresses_from_texts(self, input_territory_name: str, top: int | None = None) -> dict:
+    async def extract_addresses_from_texts(self, input_territory_name: str, territory_id: int | None = None, top: int | None = None) -> dict:
         async with database.session() as session:
-            msg_query = select(Message).where(Message.is_processed == False)
-            if top is not None and top > 0:
-                msg_query = msg_query.limit(top)
-            msg_result = await session.execute(msg_query)
-            messages: list[Message] = msg_result.scalars().all()
+            messages = await utils.get_unprocessed_texts(
+                session,
+                process_type="geolocation_processed",
+                top=top,
+                territory_id=territory_id)
 
             if not messages:
                 logger.info("No unprocessed messages found for address extraction.")
@@ -153,7 +151,11 @@ class Geocoder:
 
                 msg.location = res["location"]
                 msg.osm_id = res["osm_id"]
-                msg.is_processed = True
+                await utils.update_message_status(
+                    session,
+                    message_id=msg.message_id,
+                    process_type="geolocation_processed"
+                )
 
             await session.commit()
             logger.info(f"Batch extraction done. Updated {updated} messages (geometry set).")

@@ -13,6 +13,8 @@ from app.common.db.database import (
     MessageIndicator,
     Service,
     MessageService,
+    MessageStatus,
+    Status
 )
 from app.common.db.db_engine import database
 from sqlalchemy import select, delete, func
@@ -245,35 +247,36 @@ class MessagesCalculation:
         - Затем устанавливаются связи между сообщениями на основании оригинальных parent_message_id.
         """
         if not cutoff_date:
-            latest_date = await messages_calculation.get_latest_message_date_by_territory_id(territory_id)
-            if latest_date:
-                next_day = latest_date + timedelta(days=1)
-                cutoff_date = next_day.strftime("%Y-%m-%d")
-            else:
-                two_years_ago = datetime.now() - relativedelta(years=2)
-                cutoff_date = two_years_ago.strftime("%Y-%m-%d")
+            latest_date = await messages_calculation.get_latest_message_date_by_territory_id(
+                territory_id
+            )
+            cutoff_date = (
+                (latest_date + timedelta(days=1)).strftime("%Y-%m-%d")
+                if latest_date
+                else (datetime.now() - relativedelta(years=2)).strftime("%Y-%m-%d")
+            )
 
         access_key = config.get("VK_ACCESS_KEY")
         parser = VKParser()
         groups = await groups_calculation.get_groups_by_territory_id(territory_id)
-        all_messages_data = []
+
+        all_messages_data: list[dict] = []
         total_messages_count = 0
 
         logger.info(
-            f"Starting to parse VK texts for territory_id={territory_id}, cutoff_date={cutoff_date}, found {len(groups)} groups."
+            "Starting VK parse: territory_id=%s, cutoff=%s, groups=%s",
+            territory_id,
+            cutoff_date,
+            len(groups),
         )
 
         for group in groups:
-            # TODO: убрать после перехода на брокер
             if request is not None and await request.is_disconnected():
-                logger.info("Client disconnected. Cancelling further processing.")
+                logger.info("Client disconnected — stopping")
                 break
-
             if limit is not None and total_messages_count >= limit:
-                logger.info("Global message limit reached. Stopping further processing.")
+                logger.info("Global limit reached")
                 break
-
-            logger.info(f"Processing group_id={group.group_id}, domain={group.group_domain}...")
 
             df = await asyncio.to_thread(
                 parser.run_parser,
@@ -281,82 +284,70 @@ class MessagesCalculation:
                 access_token=access_key,
                 cutoff_date=cutoff_date,
             )
-
             if df.empty:
-                logger.info(f"No new messages for group_id={group.group_id}. Skipping.")
                 continue
 
             if limit is not None:
-                remaining = limit - total_messages_count
-                df = await asyncio.to_thread(lambda d: d.head(remaining), df)
+                df = df.head(limit - total_messages_count)
 
             df["group_id"] = group.group_id
-            df = await asyncio.to_thread(lambda d: d.replace({np.nan: None}), df)
-            df["date"] = await asyncio.to_thread(lambda d: pd.to_datetime(d["date"], utc=True), df)
-            messages_data = await asyncio.to_thread(lambda d: d.to_dict("records"), df)
+            df.replace({np.nan: None}, inplace=True)
+            df["date"] = pd.to_datetime(df["date"], utc=True)
 
-            orig_to_new = {}
-            pending_parent_updates = []
-
-            for message in messages_data:
-                orig_id = message.get("id")
-                orig_parent_id = message.get("parent_message_id")
-                message.pop("id", None)
-                message.pop("parents_stack", None)
-                message["views"] = message.pop("views.count")
-                message["likes"] = message.pop("likes.count")
-                message["reposts"] = message.pop("reposts.count")
-                message["parent_message_id"] = None
-                message["score"] = None
-                message["location"] = None
-                message["geometry"] = None
-                message["emotion_id"] = None
-                message["is_processed"] = False
-
-                message["_orig_id"] = orig_id
-                message["_orig_parent_id"] = orig_parent_id
+            messages_data = df.to_dict("records")
 
             async with database.session() as session:
+                scalar_res = await session.scalars(
+                    select(Status.process_status_id).order_by(Status.process_status_id)
+                )
+                status_ids = scalar_res.all()
+
+                orig_to_new: dict[int, Message] = {}
+                pending_parent_updates: list[tuple[int, Message]] = []
+
                 for msg in messages_data:
+                    orig_id = msg.pop("id", None)
+                    orig_parent_id = msg.pop("parent_message_id", None)
+                    msg.pop("parents_stack", None)
+
                     new_message = Message(
                         text=msg["text"],
                         date=msg["date"],
-                        views=msg["views"],
-                        likes=msg["likes"],
-                        reposts=msg["reposts"],
+                        views=msg["views.count"],
+                        likes=msg["likes.count"],
+                        reposts=msg["reposts.count"],
                         type=msg["type"],
                         parent_message_id=None,
                         group_id=msg["group_id"],
-                        emotion_id=msg["emotion_id"],
-                        score=msg["score"],
-                        geometry=msg["geometry"],
-                        location=msg["location"],
-                        is_processed=msg["is_processed"],
+                        emotion_id=None,
+                        score=None,
+                        geometry=None,
+                        location=None,
+                        is_processed=False,
                     )
                     session.add(new_message)
-                    await session.flush()
+                    await session.flush()  # нужен message_id
 
-                    orig_id = msg.get("_orig_id")
+                    for ps_id in status_ids:
+                        session.add(
+                            MessageStatus(
+                                message_id=new_message.message_id,
+                                process_status_id=ps_id,
+                                process_status=False,
+                            )
+                        )
+
                     if orig_id is not None:
                         orig_to_new[orig_id] = new_message
-
-                    orig_parent_id = msg.get("_orig_parent_id")
                     if orig_parent_id is not None:
                         pending_parent_updates.append((orig_parent_id, new_message))
 
-                for orig_parent, child_message in pending_parent_updates:
-                    parent_message = orig_to_new.get(orig_parent)
-                    if parent_message:
-                        child_message.parent_message_id = parent_message.message_id
-                        logger.info(f"Set parent for message {child_message.message_id} to {parent_message.message_id}")
-                    else:
-                        logger.warning(
-                            f"Parent with original id {orig_parent} not found. Leaving parent_message_id as None.")
-                    await session.flush()
-
+                for orig_parent, child_msg in pending_parent_updates:
+                    parent_msg = orig_to_new.get(orig_parent)
+                    if parent_msg:
+                        child_msg.parent_message_id = parent_msg.message_id
                 await session.commit()
 
-            logger.info(f"Committed {len(messages_data)} messages to DB for group_id={group.group_id}.")
             total_messages_count += len(messages_data)
             all_messages_data.extend(messages_data)
 
@@ -437,25 +428,36 @@ class MessagesCalculation:
         }
 
     @staticmethod
-    async def determine_emotion_for_unprocessed_messages_func():
-        async with database.session() as session:
-            query = select(Message).where(Message.is_processed == False)
-            result = await session.execute(query)
-            messages = result.scalars().all()
+    async def determine_emotion_for_unprocessed_messages_func(territory_id: int = None, top: int = None):
+        async with database.session() as session:                    
+            messages = await utils.get_unprocessed_texts(
+                session,
+                process_type="emotion_processed",
+                top=top,
+                territory_id=territory_id,
+            )
             if not messages:
                 return {"detail": "No unprocessed messages found."}
             total_messages = len(messages)
             count_updated = 0
             for msg in messages:
                 label = await messages_calculation.classify_emotion(msg.text)
-                emotion_query = select(Emotion).where(Emotion.name == label)
-                emotion_result = await session.execute(emotion_query)
-                emotion_obj = emotion_result.scalar_one_or_none()
+                emotion_obj = await session.scalar(
+                    select(Emotion).where(Emotion.name == label)
+                )
                 if emotion_obj:
                     msg.emotion_id = emotion_obj.emotion_id
                     count_updated += 1
+                await utils.update_message_status(
+                    session=session,
+                    message_id=msg.message_id,
+                    process_type="emotion_processed",
+                )
             await session.commit()
-        return {"detail": f"Processed {count_updated} messages out of {total_messages}."}
+
+        return {
+            "detail": f"Processed {count_updated} messages out of {total_messages}.",
+        }
 
     @staticmethod
     async def delete_all_messages_func():
