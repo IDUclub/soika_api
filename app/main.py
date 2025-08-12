@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from app.dependencies import setup_logger
 from app.dependencies import config
 from contextlib import asynccontextmanager
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,8 +23,6 @@ from fastapi import Request
 from starlette.responses import RedirectResponse
 from loguru import logger
 from iduconfig import Config
-
-setup_logger(config)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -53,7 +50,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="SOIKA API",
     description="Datamining, preprocessing and scoring of social risk and public outrage based on digital footprints",
-    version="0.5",
+    version="0.8",
     lifespan=lifespan
 )
 

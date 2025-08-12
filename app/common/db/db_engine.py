@@ -19,8 +19,7 @@ class DatabaseEngine:
         )
         self.engine = create_async_engine(
             self.url,
-            echo=True,
-            poolclass=NullPool,
+            echo=False
         )
         self.conn = self.engine.connect()
         self.session = sessionmaker(

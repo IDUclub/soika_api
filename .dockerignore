@@ -1,0 +1,6 @@
+__soika_cache__
+cache
+*.ipynb
+*.xlsx
+*.csv
+*.log
