@@ -72,10 +72,10 @@ class PreprocessingService:
         return await messages_calculation.determine_emotion_for_unprocessed_messages_func(territory_id=territory_id, top=top)
 
     @staticmethod
-    async def extract_addresses(top: int, territory_name: str, territory_id: int):
+    async def extract_addresses(top: int, territory_name: str, territory_id: int, token: str):
         logger.info("Service: Extracting addresses for unprocessed messages")
         return await geocoder.extract_addresses_from_texts(
-           input_territory_name=territory_name, territory_id=territory_id, top=top  
+           input_territory_name=territory_name, token=token, territory_id=territory_id, top=top   
         )
 
     @staticmethod

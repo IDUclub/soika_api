@@ -13,34 +13,38 @@ calculation_router = APIRouter()
 
 @calculation_router.get("/social_risk/", response_model=SocialRiskResponse)
 async def get_social_risk(
-    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)],
+    token: str = Depends(auth.verify_token)
 ) -> SocialRiskResponse:
     logger.info(f"Controller: Received social risk request with territory_id={dto.territory_id}, project_id={dto.project_id}")
-    response = await RiskCalculationService.get_social_risk(dto.territory_id, dto.project_id)
+    response = await RiskCalculationService.get_social_risk(dto.territory_id, dto.project_id, token)
     return response
 
 @calculation_router.get("/risk_coverage_areas/", response_model=CoverageResponse)
 async def get_social_risk_coverage(
-    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)],
+    token: str = Depends(auth.verify_token)
 ) -> CoverageResponse:
     logger.info(f"Controller: Received risk coverage request with territory_id={dto.territory_id}, project_id={dto.project_id}")
-    response = await RiskCalculationService.get_risk_coverage(dto.territory_id, dto.project_id)
+    response = await RiskCalculationService.get_risk_coverage(dto.territory_id, dto.project_id, token)
     return response
 
 @calculation_router.get("/collect_texts/", response_model=TextsResponse)
 async def get_texts_for_territory(
-    dto: Annotated[TimeSeriesRequest, Depends(TimeSeriesRequest)]
+    dto: Annotated[TimeSeriesRequest, Depends(TimeSeriesRequest)],
+    token: str = Depends(auth.verify_token)
 ) -> TextsResponse:
     logger.info(f"Controller: Received texts request with territory_id={dto.territory_id}, project_id={dto.project_id}, time_period={dto.time_period}")
-    response = await RiskCalculationService.collect_texts(dto.territory_id, dto.project_id, dto.time_period)
+    response = await RiskCalculationService.collect_texts(dto.territory_id, dto.project_id, dto.time_period, token)
     return response
 
 @calculation_router.get("/risk_values/", response_model=RiskValuesResponse)
 async def generate_risk_values(
-    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)],
+    token: str = Depends(auth.verify_token)
 ) -> RiskValuesResponse:
     logger.info(f"Controller: Received risk values request with territory_id={dto.territory_id}, project_id={dto.project_id}")
-    response = await RiskCalculationService.generate_risk_values(dto.territory_id, dto.project_id)
+    response = await RiskCalculationService.generate_risk_values(dto.territory_id, dto.project_id, token)
     return response
 
 @calculation_router.get('/risk_provision', response_model=ProvisionToRiskResponse)
@@ -54,10 +58,11 @@ async def generate_risk_provision(
 
 @calculation_router.get("/named_objects/", response_model=NamedObjectsResponse)
 async def get_named_objects(
-    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)]
+    dto: Annotated[ProjectTerritoryRequest, Depends(ProjectTerritoryRequest)],
+    token: str = Depends(auth.verify_token)
 ) -> NamedObjectsResponse:
     logger.info(f"Controller: Received named objects request with territory_id={dto.territory_id}, project_id={dto.project_id}")
-    response = await RiskCalculationService.get_named_objects(dto.territory_id, dto.project_id)
+    response = await RiskCalculationService.get_named_objects(dto.territory_id, dto.project_id, token)
     return response
 
 @calculation_router.get('/risk_effects', response_model=EffectsResponse)

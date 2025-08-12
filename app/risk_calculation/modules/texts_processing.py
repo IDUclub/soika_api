@@ -85,7 +85,7 @@ class TextProcessing:
         score_df['total_score'] = (score_df['total_score'] / 5).clip(lower=0, upper=1)
         return score_df
 
-    async def collect_texts(self, territory_id, project_id, period):
+    async def collect_texts(self, territory_id, project_id, period, token):
         """
         Retrieves texts for a given project and groups them by a specified period.
         
@@ -102,7 +102,7 @@ class TextProcessing:
             Если между периодами имеются промежутки, они заполняются значением 0 в count.
         """
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
         texts = await text_processing.get_texts(project_area)
         
         services_categories = CONSTANTS.json['services_categories']

@@ -85,9 +85,9 @@ class NamedObjects:
         gdf = gpd.GeoDataFrame(data, geometry="geometry", crs=messages_crs)
         return gdf
 
-    async def collect_named_objects(self, territory_id, project_id):
+    async def collect_named_objects(self, territory_id, project_id, token):
         logger.info(f"Retrieving objects for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
         local_objects = await named_objects_collection.get_objects(project_area)
 
         if local_objects.empty:

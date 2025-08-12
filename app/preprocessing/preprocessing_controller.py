@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, Request, File, Query, status, BackgroundTasks
+from fastapi import APIRouter, UploadFile, Request, File, Query, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
 from app.preprocessing.preprocessing import PreprocessingService
 from app.preprocessing.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
@@ -32,7 +32,7 @@ from app.schema.services_response import (
     MessageServicePairsResponse,
     ExtractServicesResponse
 )
-
+from app.utils import auth
 territories_router = APIRouter()
 groups_router = APIRouter()
 messages_router = APIRouter()
@@ -126,9 +126,10 @@ async def determine_emotion(
 async def extract_addresses(
     territory_id: int = Query(None, description="ID территории для обработки сообщений"),
     top: int = Query(None, description="Сколько сообщений обрабатывать (None - все)"),
-    territory_name: str = Query("Ленинградская область", description="Название территории для геокодирования")
+    territory_name: str = Query("Ленинградская область", description="Название территории для геокодирования"),
+    token: str = Depends(auth.verify_token)
 ) -> AddressesExtractionResponse:
-    return await PreprocessingService.extract_addresses(top, territory_name, territory_id)
+    return await PreprocessingService.extract_addresses(top, territory_name, territory_id, token)
 
 @messages_router.delete("/messages", response_model=DetailResponse)
 async def delete_messages() -> DetailResponse:
