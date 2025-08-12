@@ -46,11 +46,11 @@ class CoverageCalculation:
             return filtered_region.geometry.centroid.iloc[0]
 
     @staticmethod
-    async def get_links(project_id: int, urban_areas: gpd.GeoDataFrame, region_territories: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    async def get_links(project_id: int, urban_areas: gpd.GeoDataFrame, region_territories: gpd.GeoDataFrame, token) -> gpd.GeoDataFrame:
         """
         Создает линейные связи между центроидом проекта и центроидами urban-территорий.
         """
-        project_centroid = await urban_db_api.get_project_territory_centroid(project_id)
+        project_centroid = await urban_db_api.get_project_territory_centroid(project_id, token)
         areas = urban_areas.copy()
         areas["geometry"] = await asyncio.gather(
             *[CoverageCalculation.get_area_centroid(area, region_territories) for _, area in areas.iterrows()]
@@ -63,22 +63,22 @@ class CoverageCalculation:
         links_gdf = gpd.GeoDataFrame(grouped, geometry="geometry", crs=urban_areas.crs)
         return links_gdf
 
-    async def calculate_coverage(self, territory_id, project_id):
+    async def calculate_coverage(self, territory_id, project_id, token):
         """
         Расчет охвата: получение текстов, определение urban-территорий и построение связей с проектом.
         """
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
         texts = await text_processing.get_texts(project_area)
         if len(texts) == 0:
             logger.info("No texts for this area")
             return {}
 
         logger.info("Retrieving potential areas of coverage")
-        region_territories = await urban_db_api.get_territories(territory_id)
+        region_territories = await urban_db_api.get_territories(territory_id, token)
         urban_areas = await CoverageCalculation.get_areas(region_territories, texts)
         logger.info("Generating links from project to coverage areas")
-        links = await CoverageCalculation.get_links(project_id, urban_areas, region_territories)
+        links = await CoverageCalculation.get_links(project_id, urban_areas, region_territories, token)
 
         urban_areas.drop(columns=["admin_center", "is_city"], inplace=True)
         response = {

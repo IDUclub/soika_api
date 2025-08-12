@@ -152,9 +152,9 @@ class RiskCalculation:
         final_table = final_table[['risk_rating', 'description']]
         return final_table
 
-    async def calculate_social_risk(self, territory_id, project_id):
+    async def calculate_social_risk(self, territory_id, project_id, token):
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
         texts = await text_processing.get_texts(project_area)
 
         if len(texts) == 0:

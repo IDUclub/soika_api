@@ -23,7 +23,7 @@ class EffectsAPI:
             self.session = None
             logger.info("EffectsAPI session closed.")
 
-    async def get_evaluated_territories(self, scenario_id: int, token: str):
+    async def get_evaluated_territories_effects(self, scenario_id: int, token: str):
         api_url = (
             f"{self.url}/effects/provision_data"
             f"?project_scenario_id={scenario_id}&scale_type=Контекст"

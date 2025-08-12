@@ -13,7 +13,7 @@ class EffectsCalculation:
         Calculates risk for services in scenario and merges them with effects.
         """
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
         texts = await text_processing.get_texts(project_area)
         
         if len(texts) == 0:
@@ -25,7 +25,7 @@ class EffectsCalculation:
         score_df = await text_processing.summarize_risk(scored_texts)
         score_df = score_df.reset_index()
         score_df['total_score'] = score_df['total_score'].round(2)
-        effects = await effects_api.get_evaluated_territories(scenario_id, token)
+        effects = await effects_api.get_evaluated_territories_effects(scenario_id, token)
         if effects is None:
             return None
         effects = effects.merge(score_df[['services', 'total_score']], left_on='name', right_on='services', how='left')

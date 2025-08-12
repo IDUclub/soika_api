@@ -11,7 +11,7 @@ from app.common.api.townsnet_api_gateway import townsnet_api
 class RiskProvision:
     async def calculate_provision_to_risk_data(self, territory_id, project_id, token):
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id)
+        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
         texts = await text_processing.get_texts(project_area)
         
         if len(texts) == 0:
@@ -22,7 +22,7 @@ class RiskProvision:
         scored_texts = await risk_calculation.calculate_score(texts)
         score_df = await text_processing.summarize_risk(scored_texts)
 
-        territories_with_provision = await townsnet_api.get_evaluated_territories(project_id, token)
+        territories_with_provision = await townsnet_api.get_evaluated_territories_provision(project_id, token)
         services = [col for col in territories_with_provision.columns if col not in ['geometry', 'territory_id', 'basic', 'additional', 'comfort', 'Обеспеченность']]
         provision = {
             'service': services,

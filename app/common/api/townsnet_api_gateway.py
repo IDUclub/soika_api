@@ -22,7 +22,7 @@ class TownsnetAPI:
             self.session = None
             logger.info("TownsnetAPI session closed.")
 
-    async def get_evaluated_territories(self, project_id: int, token: str):
+    async def get_evaluated_territories_provision(self, project_id: int, token: str):
         api_url = f"{self.url}/provision/{project_id}/get_project_evaluation"
         logger.info(f"Fetching evaluated territories from API: {api_url}")
 
