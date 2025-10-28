@@ -1,3 +1,4 @@
+import re
 import geopandas as gpd
 import pandas as pd
 import numpy as np
@@ -76,6 +77,7 @@ class TextProcessing:
             data.append(record)
 
         gdf = gpd.GeoDataFrame(data, geometry="geometry", crs=messages_crs)
+        gdf['text'] = gdf['text'].map(self._clean_text)
         return gdf
     
     @staticmethod
@@ -148,5 +150,15 @@ class TextProcessing:
         else:
             logger.info("No texts for this area")
             return {}
+        
+    @staticmethod
+    def _clean_text(text):
+        "Cleans texts from personal data in brackets and hyperlinks"
+        RE_BRACKETS = re.compile(r'(?mi)^\s*(\[[^\]\n]*\]\s*,?\s*)+')
+        RE_LINKS = re.compile(r'(?i)https?://\S+|h\s*t\s*t\s*p\s*s?\s*:\s*/\s*/[^\n"\)\]]+')
+        text = RE_BRACKETS.sub('', text)
+        text = RE_LINKS.sub('', text)
+        text = re.sub(r'\s{2,}', ' ', text).strip(' \t-–,;')
+        return text
     
 text_processing = TextProcessing()
