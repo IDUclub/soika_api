@@ -112,7 +112,7 @@ class Geocoder:
 
     async def get_territory_bbox(self, input_territory_name: str, token) -> str:
         territory_id = await urban_db_api.get_territory_by_name(input_territory_name, token)
-        territory = await urban_db_api.get_territory(territory_id)
+        territory = await urban_db_api.get_territory(territory_id, token)
         minx, miny, maxx, maxy = territory.total_bounds
         return f"{minx},{miny},{maxx},{maxy}"
 
