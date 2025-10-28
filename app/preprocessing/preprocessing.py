@@ -13,9 +13,9 @@ class PreprocessingService:
     # Territories methods
 
     @staticmethod
-    async def get_territories():
+    async def get_territories(scope):
         logger.info("Service: Getting all territories")
-        return await territories_calculation.get_all_territories()
+        return await territories_calculation.get_all_territories(scope)
 
     @staticmethod
     async def create_territory(payload):

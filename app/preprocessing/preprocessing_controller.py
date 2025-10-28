@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, Request, File, Query, BackgroundTasks
 from fastapi.responses import JSONResponse
 from app.preprocessing.preprocessing import PreprocessingService
 from app.preprocessing.dto.vk_requests_dto import VKGroupsRequest, VKTextsRequest
-from app.preprocessing.dto.territory_dto import TerritoryCreate
+from app.preprocessing.dto.territory_dto import TerritoryCreate, TerritoryGet
 from app.preprocessing.dto.emotion_dto import EmotionCreate
 from app.preprocessing.dto.indicator_dto import IndicatorCreate
 
@@ -41,9 +41,9 @@ indicators_router = APIRouter()
 services_router = APIRouter()
 
 # Territories endpoints
-@territories_router.get("/get_territories", response_model=TerritoriesListResponse)
-async def get_territories() -> TerritoriesListResponse:
-    return await PreprocessingService.get_territories()
+@territories_router.post("/get_territories", response_model=TerritoriesListResponse)
+async def get_territories(payload: TerritoryGet) -> TerritoriesListResponse:
+    return await PreprocessingService.get_territories(payload.scope)
 
 @territories_router.post(
     "/add_territory",
