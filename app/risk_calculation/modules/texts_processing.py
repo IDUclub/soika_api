@@ -11,6 +11,7 @@ from app.common.api.urbandb_api_gateway import urban_db_api
 from app.common.modules.constants import CONSTANTS
 from app.common.db.database import Message, Emotion, Indicator, Service, MessageIndicator, MessageService, Territory, Group, GroupTerritory
 from app.common.db.db_engine import database
+from app.common.exceptions.http_exception_wrapper import http_exception
 
 class TextProcessing:
     async def get_texts(self, territory_gdf: gpd.GeoDataFrame):
@@ -55,6 +56,13 @@ class TextProcessing:
             result = await session.execute(request)
             rows = result.all()
 
+        if not rows:
+            raise http_exception(
+                status_code=404,
+                msg="No messages in project territory",
+                input_data={"territory_wkt": territory_wkt},
+                detail="No messages for these conditions."
+            )
         data = []
         for row in rows:
             message, emotion, emotion_weight, indicator, service, territory_name = row

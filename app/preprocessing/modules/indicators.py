@@ -20,6 +20,7 @@ class IndicatorsCalculation:
         self.client_cert = config.get("GPU_CLIENT_CERTIFICATE")
         self.client_key = config.get("GPU_CLIENT_KEY")
         self.ca_cert = config.get("GPU_CERTIFICATE")
+        self.llm_name = config.get("LLM_NAME")
 
     def construct_prompt(self, context):
         """
@@ -42,7 +43,7 @@ class IndicatorsCalculation:
         prompt = indicators_calculation.construct_prompt(context)
         headers = {"Content-Type": "application/json"}
         data = {
-            "model": "deepseek-r1:32b",
+            "model": self.llm_name,
             "temperature": 0.0,
             "prompt": prompt,
             "stream": False,
@@ -81,14 +82,31 @@ class IndicatorsCalculation:
         """
         Парсит строку ответа в список показателей.
         """
+        if s is None:
+            return []
+        if isinstance(s, (list, tuple)):
+            return [
+                str(word).strip().capitalize()
+                for word in s
+                if str(word).strip()
+            ]
+        if not isinstance(s, str):
+            s = str(s)
         s = s.strip()
+        if not s:
+            return []
         if s.startswith("[") and s.endswith("]"):
             inner = s[1:-1].strip()
         else:
             inner = s
+
         if not inner:
             return []
-        return [word.strip().capitalize() for word in inner.split(",") if word.strip()]
+        return [
+            word.strip().capitalize()
+            for word in inner.split(",")
+            if word.strip()
+        ]
 
     @staticmethod
     def process_indicators(indicators):
