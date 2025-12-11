@@ -31,6 +31,7 @@ class NERCalculation:
         self.client_cert = config.get("GPU_CLIENT_CERTIFICATE")
         self.client_key = config.get("GPU_CLIENT_KEY")
         self.ca_cert = config.get("GPU_CERTIFICATE")
+        self.llm_name = config.get("LLM_NAME")
 
     def construct_prompt(self, context):
         """
@@ -64,7 +65,7 @@ class NERCalculation:
         prompt = self.construct_prompt(context)
         headers = {"Content-Type": "application/json"}
         data = {
-            "model": "deepseek-r1:32b",
+            "model": self.llm_name,
             "temperature": 0.1,
             "prompt": prompt,
             "stream": False,

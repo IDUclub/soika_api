@@ -16,12 +16,12 @@ class GroupsCalculation:
 
     @staticmethod
     def process_vk_groups_df(data, territory_name):
-            df = pd.DataFrame(data["response"]["items"])[["id", "name", "screen_name"]]
-            df.rename(
-                columns={"screen_name": "group_domain", "id": "group_id"}, inplace=True
-            )
-            df["matched_territory"] = territory_name
-            return df.to_dict("records")
+        df = pd.DataFrame(data["response"]["items"])[["id", "name", "screen_name"]]
+        df.rename(
+            columns={"screen_name": "group_domain", "id": "group_id"}, inplace=True
+        )
+        df["matched_territory"] = territory_name
+        return df.to_dict("records")
 
     @staticmethod
     async def get_groups_by_territory_id(territory_id: int):
@@ -32,7 +32,7 @@ class GroupsCalculation:
                     404,
                     f"Territory with id={territory_id} not found",
                     territory_id,
-                    None
+                    None,
                 )
             territory_name = territory.name
             query = select(Group).where(Group.matched_territory == territory_name)
@@ -51,7 +51,7 @@ class GroupsCalculation:
                     404,
                     f"Territory with id={territory_id} not found",
                     territory_id,
-                    None
+                    None,
                 )
             territory_name = territory.name
 
@@ -73,18 +73,30 @@ class GroupsCalculation:
         )
 
         async with database.session() as session:
+            group_ids = [int(r["group_id"]) for r in records]
+
+            existing_ids: set[int] = set()
+            if group_ids:
+                result = await session.execute(
+                    select(Group.group_id).where(Group.group_id.in_(group_ids))
+                )
+                existing_ids = set(result.scalars().all())
             for record in records:
+                gid = int(record["group_id"])
+                if gid in existing_ids:
+                    continue
+
                 group_obj = Group(
-                    group_id=record["group_id"],
+                    group_id=gid,
                     name=record["name"],
                     group_domain=record["group_domain"],
                     matched_territory=record["matched_territory"],
                 )
                 session.add(group_obj)
+
             await session.commit()
 
         return territory_name
-
 
     @staticmethod
     async def get_all_groups():
@@ -105,7 +117,9 @@ class GroupsCalculation:
     @staticmethod
     async def collect_vk_groups_func(data):
         result = await groups_calculation.search_vk_groups(data.territory_id)
-        return {"status": f"VK groups for id {data.territory_id} {result} collected and saved to database"}
+        return {
+            "status": f"VK groups for id {data.territory_id} {result} collected and saved to database"
+        }
 
     @staticmethod
     async def delete_all_groups_func():
@@ -113,5 +127,6 @@ class GroupsCalculation:
             await session.execute(delete(Group))
             await session.commit()
         return {"detail": "All groups deleted"}
-    
+
+
 groups_calculation = GroupsCalculation(config)
