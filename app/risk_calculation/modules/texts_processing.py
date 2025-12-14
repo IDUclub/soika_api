@@ -85,7 +85,7 @@ class TextProcessing:
             data.append(record)
 
         gdf = gpd.GeoDataFrame(data, geometry="geometry", crs=messages_crs)
-        gdf['text'] = gdf['text'].map(self._clean_text)
+        gdf['text'] = gdf['text'].map(self.clean_text)
         return gdf
     
     @staticmethod
@@ -160,7 +160,7 @@ class TextProcessing:
             return {}
         
     @staticmethod
-    def _clean_text(text):
+    def clean_text(text):
         "Cleans texts from personal data in brackets and hyperlinks"
         RE_BRACKETS = re.compile(r'(?mi)^\s*(\[[^\]\n]*\]\s*,?\s*)+')
         RE_LINKS = re.compile(r'(?i)https?://\S+|h\s*t\s*t\s*p\s*s?\s*:\s*/\s*/[^\n"\)\]]+')

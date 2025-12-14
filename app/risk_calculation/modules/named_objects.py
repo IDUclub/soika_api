@@ -12,6 +12,7 @@ from geoalchemy2.functions import ST_Intersects, ST_GeomFromText
 from app.common.api.urbandb_api_gateway import urban_db_api
 from app.common.db.database import Message, NamedObject, MessageNamedObject
 from app.common.db.db_engine import database
+from app.risk_calculation.modules.texts_processing import text_processing
 
 class NamedObjects:
     @staticmethod        
@@ -67,7 +68,7 @@ class NamedObjects:
                             osm_tag = [osm_tag]
                     except Exception:
                         osm_tag = [obj.osm_tag]
-
+                texts = [text_processing.clean_text(text) for text in texts]
                 record = {
                     "named_object_id": obj.named_object_id,
                     "object_name": obj.object_name,
