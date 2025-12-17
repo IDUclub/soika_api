@@ -161,12 +161,19 @@ class TextProcessing:
         
     @staticmethod
     def clean_text(text):
-        "Cleans texts from personal data in brackets and hyperlinks"
         RE_BRACKETS = re.compile(r'(?mi)^\s*(\[[^\]\n]*\]\s*,?\s*)+')
         RE_LINKS = re.compile(r'(?i)https?://\S+|h\s*t\s*t\s*p\s*s?\s*:\s*/\s*/[^\n"\)\]]+')
-        text = RE_BRACKETS.sub('', text)
-        text = RE_LINKS.sub('', text)
-        text = re.sub(r'\s{2,}', ' ', text).strip(' \t-–,;')
+        RE_NOT_RU_EN = re.compile(r"[^A-Za-zА-Яа-яЁё0-9\s\.\,\!\?\:\;\-–—\(\)\"'«»/]+")
+
+        if text is None:
+            return ""
+
+        text = str(text)
+        text = RE_BRACKETS.sub("", text)
+        text = RE_LINKS.sub("", text)
+        text = RE_NOT_RU_EN.sub(" ", text)
+
+        text = re.sub(r"\s{2,}", " ", text).strip(" \t-–,;")
         return text
     
 text_processing = TextProcessing()

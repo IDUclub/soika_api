@@ -28,24 +28,25 @@ class EffectsCalculation:
         effects = await effects_api.get_evaluated_territories_effects(scenario_id, token)
         if effects is None:
             return None
+        service_ids = await effects_api.get_services_ids(scenario_id, token)
+        service_mapping = await urban_db_api.get_service_mapping()
+        service_mapping = service_ids.merge(service_mapping, on='id')
+        effects = effects.merge(service_mapping, on='name_en')
         effects = effects.merge(score_df[['services', 'total_score']], left_on='name', right_on='services', how='left')
         effects['total_score'].fillna(0, inplace=True)
+        effects.rename(columns={'total_score':'risk'}, inplace=True)
         services_data = await urban_db_api.get_services_for_groups()
-        effects = (
-            effects
-            .merge(
+        effects =  effects.merge(
                 services_data,
                 left_on='name',  
                 right_index=True,
                 how='left'
             )
-            .drop(columns=['services', 'id'])
-        )
-        effects.rename(columns={'infrastructure_type':'category'}, inplace=True)
+        effects = effects[['name', 'category', 'before', 'after', 'delta', 'risk', 'social_group']]
         effects['category'] = effects['category'].map({"basic":"Базовая", "additional":"Дополнительная", "comfort":"Комфортная"})
         effects['category'] = effects['category'] + ' инфраструктура'
-        effects.rename(columns={'total_score':'risk'}, inplace=True)
         effects['category'] = effects['category'].replace({np.nan: None})
+        effects.dropna(subset='social_group', inplace=True)
         effects = (
             effects
             .groupby('name', as_index=False)
