@@ -46,6 +46,10 @@ class NamedObjects:
                 )
                 mapping_result = await session.execute(mapping_query)
                 texts = mapping_result.scalars().all()
+                if isinstance(texts, str):
+                    texts = [texts]
+                elif texts is None:
+                    texts = []
 
                 estimated_location_list = (
                     obj.estimated_location.split("; ") if obj.estimated_location else []
@@ -53,6 +57,15 @@ class NamedObjects:
                 object_description_list = (
                     obj.object_description.split("; ") if obj.object_description else []
                 )
+                
+                object_description_list = [text_processing.clean_text(x) for x in object_description_list if x]
+                estimated_location_list = [text_processing.clean_text(x) for x in estimated_location_list if x]
+                if (
+                    isinstance(object_description_list, list)
+                    and len(object_description_list) > 1
+                    and all(isinstance(x, str) and len(x) <= 1 for x in object_description_list)
+                ):
+                    object_description_list = ["".join((" " if x == "" else x) for x in object_description_list)]
                 # TODO: костыль. Поменять механизм загрузки в базу osm_id
                 if obj.osm_id == 0:
                     osm_id = None
@@ -69,6 +82,8 @@ class NamedObjects:
                     except Exception:
                         osm_tag = [obj.osm_tag]
                 texts = [text_processing.clean_text(text) for text in texts]
+                if not texts or all((t is None) or (len(t) == 0) for t in texts):
+                    continue
                 record = {
                     "named_object_id": obj.named_object_id,
                     "object_name": obj.object_name,

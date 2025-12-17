@@ -203,6 +203,14 @@ class UrbanDBAPI:
         else:
             logger.warning("No service data collected for any social group")
             return pd.DataFrame()
+        
+    async def get_service_mapping(self):
+        api_url = f"{self.url}/v1/service_types"
+        logger.info(f"Fetching list of projects for the territory from API: {api_url}")
+        json_data = await self.handler.request("GET", api_url, session=self.session)
+        logger.info(f"Service mapping successfully fetched from API.")
+        service_mapping = pd.DataFrame([{"id": x["service_type_id"], "name": x["name"], "category": x['infrastructure_type']} for x in json_data])
+        return service_mapping
 
 
 urban_db_api = UrbanDBAPI(config)

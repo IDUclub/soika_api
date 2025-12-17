@@ -25,8 +25,7 @@ class EffectsAPI:
 
     async def get_evaluated_territories_effects(self, scenario_id: int, token: str):
         api_url = (
-            f"{self.url}/effects/provision_data"
-            f"?project_scenario_id={scenario_id}&scale_type=Контекст"
+            f"{self.url}/tasks/get_provisions/{scenario_id}"
         )
         headers = {"Authorization": f"Bearer {token}"}
         logger.info(f"GET {api_url}")
@@ -39,19 +38,26 @@ class EffectsAPI:
                 headers=headers,
             )
             logger.success(f"Fetched effects for scenario {scenario_id}")
-            return pd.DataFrame(json_data)
+            result = pd.DataFrame(json_data)
+            result.reset_index(inplace=True)
+            result.columns = ["name_en", "before", "after"]
+            after_is_empty = result["after"].isna().all()
+            cols = ["before", "after"]
+            result[cols] = result[cols].fillna(0)
+            result["delta"] = 0 if after_is_empty else (result["after"] - result["before"]).round(2)
+            return result
 
         except HTTPException as e:
             if e.status_code == 404:
                 logger.warning(f"No data for {scenario_id}, triggering evaluation")
 
-                eval_url = f"{self.url}/effects/evaluate"
+                eval_url = f"{self.url}/tasks/territory_transformation?force=false&scenario_id={scenario_id}"
                 await self.handler.request(
                     "POST",
                     eval_url,
                     session=self.session,
                     headers=headers,
-                    params={"project_scenario_id": scenario_id},
+                    params={"method": "territory_transformation", "scenario_id": scenario_id},
                 )
                 logger.success(f"Triggered evaluation for scenario {scenario_id}")
                 return None
@@ -61,6 +67,27 @@ class EffectsAPI:
 
         except Exception:
             logger.exception(f"Unexpected error for scenario {scenario_id}")
+            raise
+
+    async def get_services_ids(self, scenario_id: int, token: str):
+        api_url = (
+            f"{self.url}/tasks/get_service_types?scenario_id={scenario_id}&method=territory_transformation"
+        )
+        headers = {"Authorization": f"Bearer {token}"}
+        logger.info(f"GET {api_url}")
+
+        try:
+            json_data = await self.handler.request(
+                "GET",
+                api_url,
+                session=self.session,
+                headers=headers,
+            )
+            logger.success(f"Fetched effects for scenario {scenario_id}")
+            service_ids = pd.DataFrame(json_data["before"])
+            service_ids.columns = ['id', 'name_en']
+            return service_ids
+        except Exception:
             raise
 
 
