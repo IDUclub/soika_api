@@ -18,14 +18,26 @@ from app.preprocessing.preprocessing_controller import (
     services_router
 )
 from app.common.system_controller import system_router
+from app.observability import OpenTelemetryAgent, PrometheusConfig
+from app.observability.metrics import setup_metrics
+from app.common.middlewares.prometheus_handler import ObservabilityMiddleware
 from fastapi.responses import JSONResponse
 from fastapi import Request
 from starlette.responses import RedirectResponse
 from loguru import logger
 from iduconfig import Config
 
+metrics = setup_metrics()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    otel_agent = OpenTelemetryAgent(
+        prometheus_config=PrometheusConfig(
+            host="0.0.0.0",
+            port=int(config.get("PROMETHEUS_PORT", 9464)),
+        ),
+    )
+
     await models_initialization.init_models()
 
     await urban_db_api.init()
@@ -46,6 +58,7 @@ async def lifespan(app: FastAPI):
     await app.state.effects_api.close()
     await app.state.townsnet_api.close()
     await app.state.values_api.close()
+    otel_agent.shutdown()
 
 app = FastAPI(
     title="SOIKA API",
@@ -55,6 +68,7 @@ app = FastAPI(
 )
 
 origins = ["*"]
+app.add_middleware(ObservabilityMiddleware, metrics=metrics)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
