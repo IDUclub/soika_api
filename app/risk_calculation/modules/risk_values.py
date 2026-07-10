@@ -13,21 +13,30 @@ from app.common.exceptions.http_exception_wrapper import http_exception
 
 class RiskValues:
     @staticmethod
-    async def get_level_4_territory(territory_id):
-            territory = await urban_db_api.get_territory(territory_id)
+    async def get_level_4_territory(territory_id, actor_user_id: str | None = None):
+            territory = await urban_db_api.get_territory(
+                territory_id,
+                actor_user_id=actor_user_id,
+            )
             while territory.iloc[0]['level'] < 4:
                 parent_id = territory.iloc[0]['parent_id']
                 if parent_id is None:
                     break 
-                territory = await urban_db_api.get_territory(parent_id)
+                territory = await urban_db_api.get_territory(parent_id, actor_user_id=actor_user_id)
             return territory
 
     @staticmethod
-    async def fetch_municipalities(df):      
+    async def fetch_municipalities(df, actor_user_id: str | None = None):
         territories_to_fetch = df[df['level'] < 4]
         if len(territories_to_fetch) == 0:
             return df
-        tasks = [risk_values_collection.get_level_4_territory(territory_id) for territory_id in territories_to_fetch['territory_id']]
+        tasks = [
+            risk_values_collection.get_level_4_territory(
+                territory_id,
+                actor_user_id=actor_user_id,
+            )
+            for territory_id in territories_to_fetch['territory_id']
+        ]
         results = await asyncio.gather(*tasks)
         final_df = gpd.GeoDataFrame(pd.concat(results, ignore_index=True), geometry='geometry', crs=4326)
         
@@ -85,9 +94,13 @@ class RiskValues:
         })
         return category_table
 
-    async def calculate_values_to_risk_data(self, territory_id, project_id, token):
+    async def calculate_values_to_risk_data(self, territory_id, project_id, actor_user_id):
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
+        project_area = await urban_db_api.get_context_territories(
+            territory_id,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
         texts = await text_processing.get_texts(project_area)
 
         if len(texts) == 0:
@@ -100,7 +113,10 @@ class RiskValues:
         score_df = await risk_values_collection.summarize_risk(scored_texts)
         risk_series = await risk_values_collection.map_risk_score(score_df)
 
-        municipalities = await risk_values_collection.fetch_municipalities(project_area)
+        municipalities = await risk_values_collection.fetch_municipalities(
+            project_area,
+            actor_user_id=actor_user_id,
+        )
         municipal_districts_list = municipalities['parent_id'].unique().tolist()
         value_data = await asyncio.gather(
             *(values_api.get_value_data(tid) for tid in municipal_districts_list)

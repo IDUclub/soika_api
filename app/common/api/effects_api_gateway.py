@@ -5,6 +5,7 @@ import aiohttp
 from iduconfig import Config
 from app.common.api.api_error_handler import APIHandler
 from app.dependencies import config
+from app.utils import auth
 
 class EffectsAPI:
     def __init__(self, config: Config):
@@ -23,11 +24,15 @@ class EffectsAPI:
             self.session = None
             logger.info("EffectsAPI session closed.")
 
-    async def get_evaluated_territories_effects(self, scenario_id: int, token: str):
+    async def get_evaluated_territories_effects(
+        self,
+        scenario_id: int,
+        actor_user_id: str | None = None,
+    ):
         api_url = (
             f"{self.url}/tasks/get_provisions/{scenario_id}"
         )
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = await auth.get_outgoing_auth_headers(actor_user_id=actor_user_id)
         logger.info(f"GET {api_url}")
 
         try:
@@ -69,11 +74,11 @@ class EffectsAPI:
             logger.exception(f"Unexpected error for scenario {scenario_id}")
             raise
 
-    async def get_services_ids(self, scenario_id: int, token: str):
+    async def get_services_ids(self, scenario_id: int, actor_user_id: str | None = None):
         api_url = (
             f"{self.url}/tasks/get_service_types?scenario_id={scenario_id}&method=territory_transformation"
         )
-        headers = {"Authorization": f"Bearer {token}"}
+        headers = await auth.get_outgoing_auth_headers(actor_user_id=actor_user_id)
         logger.info(f"GET {api_url}")
 
         try:

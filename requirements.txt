@@ -1,4 +1,4 @@
-aiohttp~=3.11.13
+aiohttp>=3.14,<4.0
 fastapi~=0.115.2
 GeoAlchemy2~=0.15.2
 geojson-pydantic~=0.4.0
@@ -25,6 +25,8 @@ requests~=2.32.3
 IDU-config~=1.0.0
 python-multipart~=0.0.5
 pymorphy3
+PyJWT[crypto]~=2.10.1
+idu-service-auth @ git+https://github.com/IDUclub/idu-service-auth.git@1b8a418d9b1ab702860eb7289a3b75244666a8d8
 opentelemetry-api~=1.27.0
 opentelemetry-sdk~=1.27.0
 opentelemetry-exporter-prometheus~=0.48b0

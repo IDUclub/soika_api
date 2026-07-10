@@ -4,6 +4,7 @@ import geopandas as gpd
 from iduconfig import Config
 from app.common.api.api_error_handler import APIHandler
 from app.dependencies import config
+from app.utils import auth
 
 class TownsnetAPI:
     def __init__(self, config: Config):
@@ -22,11 +23,15 @@ class TownsnetAPI:
             self.session = None
             logger.info("TownsnetAPI session closed.")
 
-    async def get_evaluated_territories_provision(self, project_id: int, token: str):
+    async def get_evaluated_territories_provision(
+        self,
+        project_id: int,
+        actor_user_id: str | None = None,
+    ):
         api_url = f"{self.url}/provision/{project_id}/get_project_evaluation"
         logger.info(f"Fetching evaluated territories from API: {api_url}")
 
-        headers = {'Authorization': f'Bearer {token}'}
+        headers = await auth.get_outgoing_auth_headers(actor_user_id=actor_user_id)
         geojson_data = await self.handler.request("GET", api_url, session=self.session, headers=headers)
         logger.info(f"Evaluated territories for project_id {project_id} successfully fetched from API.")
         territories = gpd.GeoDataFrame.from_features(geojson_data["features"])

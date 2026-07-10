@@ -33,6 +33,7 @@ from app.schema.services_response import (
     ExtractServicesResponse
 )
 from app.utils import auth
+from app.common.api.urbandb_api_gateway import urban_db_api
 territories_router = APIRouter()
 groups_router = APIRouter()
 messages_router = APIRouter()
@@ -127,9 +128,19 @@ async def extract_addresses(
     territory_id: int = Query(None, description="ID территории для обработки сообщений"),
     top: int = Query(None, description="Сколько сообщений обрабатывать (None - все)"),
     territory_name: str = Query("Ленинградская область", description="Название территории для геокодирования"),
-    token: str = Depends(auth.verify_token)
+    current_user: auth.AuthenticatedUser = Depends(auth.get_current_user),
 ) -> AddressesExtractionResponse:
-    return await PreprocessingService.extract_addresses(top, territory_name, territory_id, token)
+    await urban_db_api.ensure_territory_access(
+        territory_id,
+        territory_name,
+        current_user.access_token,
+    )
+    return await PreprocessingService.extract_addresses(
+        top,
+        territory_name,
+        territory_id,
+        current_user.user_id,
+    )
 
 @messages_router.delete("/messages", response_model=DetailResponse)
 async def delete_messages() -> DetailResponse:

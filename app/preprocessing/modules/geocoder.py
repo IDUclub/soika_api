@@ -110,13 +110,22 @@ class Geocoder:
 
         return {"geometry": point, "location": name or None, "osm_id": osm_id}
 
-    async def get_territory_bbox(self, input_territory_name: str, token) -> str:
-        territory_id = await urban_db_api.get_territory_by_name(input_territory_name, token)
-        territory = await urban_db_api.get_territory(territory_id, token)
+    async def get_territory_bbox(self, input_territory_name: str, actor_user_id: str | None = None) -> str:
+        territory_id = await urban_db_api.get_territory_by_name(
+            input_territory_name,
+            actor_user_id=actor_user_id,
+        )
+        territory = await urban_db_api.get_territory(territory_id, actor_user_id=actor_user_id)
         minx, miny, maxx, maxy = territory.total_bounds
         return f"{minx},{miny},{maxx},{maxy}"
 
-    async def extract_addresses_from_texts(self, input_territory_name: str, token, territory_id: int | None = None, top: int | None = None) -> dict:
+    async def extract_addresses_from_texts(
+        self,
+        input_territory_name: str,
+        actor_user_id: str | None = None,
+        territory_id: int | None = None,
+        top: int | None = None,
+    ) -> dict:
         async with database.session() as session:
             messages = await utils.get_unprocessed_texts(
                 session,
@@ -128,7 +137,7 @@ class Geocoder:
                 logger.info("No unprocessed messages found for address extraction.")
                 return {"status": "No messages to process."}
 
-            bbox = await self.get_territory_bbox(input_territory_name, token)
+            bbox = await self.get_territory_bbox(input_territory_name, actor_user_id=actor_user_id)
 
             updated = 0
             for msg in tqdm(messages, total=len(messages), desc="Geocoding"):

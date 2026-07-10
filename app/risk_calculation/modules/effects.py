@@ -8,12 +8,16 @@ from app.common.modules.constants import CONSTANTS
 
 
 class EffectsCalculation:
-    async def calculate_risk_for_effects(self, territory_id, project_id, scenario_id, token):
+    async def calculate_risk_for_effects(self, territory_id, project_id, scenario_id, actor_user_id):
         """
         Calculates risk for services in scenario and merges them with effects.
         """
         logger.info(f"Retrieving texts for project {project_id} and its context")
-        project_area = await urban_db_api.get_context_territories(territory_id, project_id, token)
+        project_area = await urban_db_api.get_context_territories(
+            territory_id,
+            project_id,
+            actor_user_id=actor_user_id,
+        )
         texts = await text_processing.get_texts(project_area)
         
         if len(texts) == 0:
@@ -25,17 +29,20 @@ class EffectsCalculation:
         score_df = await text_processing.summarize_risk(scored_texts)
         score_df = score_df.reset_index()
         score_df['total_score'] = score_df['total_score'].round(2)
-        effects = await effects_api.get_evaluated_territories_effects(scenario_id, token)
+        effects = await effects_api.get_evaluated_territories_effects(
+            scenario_id,
+            actor_user_id=actor_user_id,
+        )
         if effects is None:
             return None
-        service_ids = await effects_api.get_services_ids(scenario_id, token)
-        service_mapping = await urban_db_api.get_service_mapping()
+        service_ids = await effects_api.get_services_ids(scenario_id, actor_user_id=actor_user_id)
+        service_mapping = await urban_db_api.get_service_mapping(actor_user_id=actor_user_id)
         service_mapping = service_ids.merge(service_mapping, on='id')
         effects = effects.merge(service_mapping, on='name_en')
         effects = effects.merge(score_df[['services', 'total_score']], left_on='name', right_on='services', how='left')
         effects['total_score'].fillna(0, inplace=True)
         effects.rename(columns={'total_score':'risk'}, inplace=True)
-        services_data = await urban_db_api.get_services_for_groups()
+        services_data = await urban_db_api.get_services_for_groups(actor_user_id=actor_user_id)
         effects =  effects.merge(
                 services_data,
                 left_on='name',  
