@@ -1,1 +1,1 @@
-from app.main import app
+"""SOIKA API package."""

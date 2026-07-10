@@ -16,7 +16,10 @@ ENV APP_ENV=development
 
 # Install pip requirements
 COPY requirements.txt .
-RUN python -m pip install -r requirements.txt
+# soika pulls pymorphy2, which imports pkg_resources removed from setuptools 83.
+RUN python -m pip install -r requirements.txt \
+    && python -m pip install --force-reinstall "setuptools==80.10.2" \
+    && python -c "import pkg_resources"
 
 WORKDIR /app
 COPY . /app

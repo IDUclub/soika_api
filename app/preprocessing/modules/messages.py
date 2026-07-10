@@ -23,6 +23,10 @@ import asyncio
 import numpy as np
 from loguru import logger
 import pandas as pd
+from app.compat import patch_inspect_getargspec
+
+patch_inspect_getargspec()
+
 from soika import VKParser
 from app.common.modules.constants import CONSTANTS
 from datetime import datetime, timedelta

@@ -25,7 +25,6 @@ requests~=2.32.3
 IDU-config~=1.0.0
 python-multipart~=0.0.5
 pymorphy3
-setuptools>=83.0.0,<84.0.0
 PyJWT[crypto]~=2.10.1
 idu-service-auth @ git+https://github.com/IDUclub/idu-service-auth.git@1b8a418d9b1ab702860eb7289a3b75244666a8d8
 opentelemetry-api~=1.30.0
